@@ -3,6 +3,7 @@
 Запуск:  python app.py   →  http://127.0.0.1:5000
 """
 import json
+import math
 import random
 import struct
 import threading
@@ -208,6 +209,7 @@ class Monitor:
         with self.lock:
             rec["id"] = self.next_id
             rec["time"] = datetime.now().strftime("%H:%M:%S")
+            rec["ts"] = time.time()
             self.next_id += 1
             self.records.append(rec)
             if len(self.records) > 5000:
@@ -246,12 +248,12 @@ class Monitor:
             self.stats["tm_unmatched"] += 1
         else:
             self.update_card(tm, parsed, 0, 0)
-        kind = "телекоманда" if pkt_type else "телеметрия"
+        kind = "Телекоманда" if pkt_type else "Телеметрия"
         segs = [
             {"name": "Версия, тип, APID", "key": "dev", "start": 0, "len": 2,
-             "value": f"APID {apid} · {kind}", "hint": f"версия {w1 >> 13}"},
+             "value": f"APID {apid}, {kind.lower()}", "hint": f"версия {w1 >> 13}"},
             {"name": "Флаги, счётчик", "key": "pack", "start": 2, "len": 2,
-             "value": f"флаг {flags} · № {counter}", "hint": "старшие 2 бита — сегментация"},
+             "value": f"флаг {flags}, № {counter}", "hint": "старшие 2 бита — сегментация"},
             {"name": "Длина", "key": "size", "start": 4, "len": 2,
              "value": f"{len(payload)} байт", "hint": f"в заголовке {w3} (длина − 1)"},
             {"name": "Данные", "key": "payload", "start": 6, "len": len(payload)},
@@ -260,7 +262,7 @@ class Monitor:
                             for f in tm["fields"]) if tm else ""
         self.add({
             "kind": "rx", "valid": True, "alarm": False, "device_id": apid,
-            "type_name": f"CCSDS · {kind}", "packet_number": counter & 0x0F,
+            "type_name": kind, "proto": "ccsds", "packet_number": counter & 0x0F,
             "size": len(payload), "text": hx(payload), "preview": summary or hx(payload),
             "payload_hex": hx(payload), "raw_hex": hx(data), "frame_hex": hx(data),
             "tail_hex": "", "segments": segs, "telemetry": tm, "tm_summary": summary,
@@ -357,6 +359,7 @@ class Monitor:
                 self.system(f"Ошибка подключения: {exc}", True)
                 return False, str(exc)
         self.port_name, self.baud, self.parity = port, baud, parity
+        self.connected_at = time.time()
         self.stop = threading.Event()
         target = self._demo_loop if port == DEMO_PORT else self._read_loop
         self.thread = threading.Thread(target=target, args=(self.stop,), daemon=True)
@@ -403,6 +406,8 @@ class Monitor:
 
     def _demo_loop(self, stop):
         """Имитация спутника, чтобы пробовать интерфейс без железа."""
+        if proto.data.get("framing", {}).get("mode") == "ccsds":
+            return self._demo_ccsds(stop)
         n = 0
         lon, lat = 377_000_000, 557_000_000
         while not stop.wait(1.4):
@@ -423,6 +428,28 @@ class Monitor:
             self.stats["rx"] += 1
             self.stats["rx_bytes"] += len(data) + 3
             self.add_radio(data)
+
+    def _demo_ccsds(self, stop):
+        """Пакеты как у StratosatSys: 6 байт заголовка CCSDS + 49 байт телеметрии (big-endian), раз в секунду."""
+        n = 0
+        temp, volt, mag = 24.0, 14.9, [1800, -900, 3100]
+        while not stop.wait(1.0):
+            n += 1
+            temp += random.uniform(-0.15, 0.25)
+            if temp > 33:
+                temp = 24.0
+            volt = max(10.5, volt - random.uniform(0, 0.004))
+            mag = [m + random.randint(-40, 40) for m in mag]
+            gyro = [int(400 * math.sin(n / 9 + k)) + random.randint(-30, 30) for k in range(3)]
+            acc = [random.randint(-60, 60), random.randint(-60, 60), 2048 + random.randint(-40, 40)]
+            alt = int(120 + 18 * n + random.uniform(-3, 3)) & 0xFFFF
+            data = struct.pack(">3h3h3hIIHhhBBBH", *gyro, *acc, *mag,
+                               8_690_000 + random.randint(-900, 900), 8_650_000 - 120 * n + random.randint(-300, 300),
+                               alt, int(temp * 8), int(temp * 8) - 3,
+                               2 if temp > 35 else 0, 0, 0xC0, int(volt * 100))
+            data += bytes(49 - len(data))
+            head = struct.pack(">HHH", 0x0000, 0xC000, len(data) - 1)
+            self.on_frame("ccsds", head + data)
 
     def send_bytes(self, data):
         if self.port_name == DEMO_PORT and self.is_connected():
@@ -585,6 +612,7 @@ def api_state():
                      for c in mon.tm.values()]
     return jsonify(records=new, last=last, connected=mon.is_connected(),
                    port=mon.port_name, baud=mon.baud, parity=getattr(mon, "parity", "N"), stats=mon.stats,
+                   connected_at=getattr(mon, "connected_at", None),
                    reset=since > last, telemetry=telemetry, now=time.time(),
                    proto_version=proto.version, proto_error=proto.error)
 

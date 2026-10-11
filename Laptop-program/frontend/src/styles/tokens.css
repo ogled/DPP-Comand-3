@@ -1,0 +1,93 @@
+/*
+ * Палитра — эмаль приборной панели и лампы табло.
+ * День — для работы на улице (контраст при солнце), ночь — приглушённая панель со светящимися лампами.
+ */
+:root,
+:root[data-theme="day"] {
+  color-scheme: light;
+  --enamel: #D2D9D1;
+  --plate: #E7EBE5;
+  --plate-hi: #F3F5F1;
+  --rule: #B3BDB2;
+  --rule-soft: #CCD3CB;
+  --ink: #18211B;
+  --ink-2: #47534C;
+  --ink-3: #6F7B74;
+  --switch: #1E2922;
+  --switch-ink: #EDF1EB;
+  --sel-bg: #D3DCD6;
+  --focus: #2C6BC9;
+  --scrim: rgba(18, 24, 20, 0.45);
+
+  --bezel: #2B342E;
+  --tile-off: #4A544E;
+  --tile-off-ink: #AAB4AD;
+  --green: #2F9653;
+  --green-ink: #F2FBF4;
+  --amber: #E59E1A;
+  --amber-ink: #2B1C00;
+  --red: #CF3B29;
+  --red-ink: #FFF3F0;
+  --white: #ECEADB;
+  --white-ink: #2A2B22;
+  --glow: 0;
+
+  --green-text: #24763F;
+  --amber-text: #955E00;
+  --red-text: #B5321F;
+
+  --s-dev: #CAD7EA; --s-dev-i: #23467C;
+  --s-lon: #CDE3D2; --s-lon-i: #1E6636;
+  --s-lat: #C9E2E1; --s-lat-i: #165F61;
+  --s-type: #EFD9B0; --s-type-i: #7E4C05;
+  --s-pack: #EBD0DA; --s-pack-i: #842C55;
+  --s-size: #DAD3EA; --s-size-i: #4F3D88;
+  --s-payload: #1E2922; --s-payload-i: #EDF1EB;
+  --s-raw: #C4CCC3; --s-raw-i: #47534C;
+
+  --sans: "Geologica Variable", "Segoe UI", system-ui, sans-serif;
+  --mono: "Martian Mono Variable", "Cascadia Mono", Consolas, monospace;
+}
+
+:root[data-theme="night"] {
+  color-scheme: dark;
+  --enamel: #121714;
+  --plate: #1A201C;
+  --plate-hi: #212823;
+  --rule: #313B35;
+  --rule-soft: #272F2A;
+  --ink: #D7DFD6;
+  --ink-2: #9AA69E;
+  --ink-3: #68746D;
+  --switch: #D7DFD6;
+  --switch-ink: #121714;
+  --sel-bg: #27312B;
+  --focus: #6EA3F0;
+  --scrim: rgba(0, 0, 0, 0.6);
+
+  --bezel: #090C0A;
+  --tile-off: #1A201C;
+  --tile-off-ink: #4D5852;
+  --green: #3DB868;
+  --green-ink: #041A0B;
+  --amber: #F0AF36;
+  --amber-ink: #241700;
+  --red: #EE5B46;
+  --red-ink: #240600;
+  --white: #DCD8C2;
+  --white-ink: #1B1B14;
+  --glow: 1;
+
+  --green-text: #5BCB83;
+  --amber-text: #EDB24A;
+  --red-text: #F27461;
+
+  --s-dev: #233552; --s-dev-i: #A9C2EA;
+  --s-lon: #1C3626; --s-lon-i: #8ED1A4;
+  --s-lat: #193534; --s-lat-i: #87CFCC;
+  --s-type: #3D2C12; --s-type-i: #EAC37E;
+  --s-pack: #3C2230; --s-pack-i: #E6A6C3;
+  --s-size: #2C2645; --s-size-i: #C1B2EE;
+  --s-payload: #D7DFD6; --s-payload-i: #121714;
+  --s-raw: #272F2A; --s-raw-i: #9AA69E;
+}

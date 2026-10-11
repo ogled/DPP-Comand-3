@@ -203,7 +203,9 @@ class Protocol:
     @staticmethod
     def _field(f, payload, order):
         out = {"name": f["name"], "unit": f.get("unit", ""), "value": None, "text": "—", "state": "err",
-               "group": f.get("group", ""), "kpi": bool(f.get("kpi"))}
+               "group": f.get("group", ""), "kpi": bool(f.get("kpi")), "type": f.get("type", "u8"),
+               "limits": {k: f[k] for k in ("warn_min", "warn_max", "crit_min", "crit_max") if k in f},
+               "rated": any(k in f for k in ("warn_min", "warn_max", "crit_min", "crit_max", "bad_values"))}
         t = f.get("type", "u8")
         try:
             off = _int(f.get("offset", 0))
