@@ -26,6 +26,10 @@
     </div>
     <div class="bar-mid">
       <span class="chip" id="status"><i class="dot"></i><span id="statusText">Отключено</span></span>
+      <div class="modes" id="modes" role="group" aria-label="Режим">
+        <button data-m="mon" class="on">Монитор</button>
+        <button data-m="mcc">ЦУП</button>
+      </div>
     </div>
     <div class="bar-actions">
       <button class="btn ghost" id="pauseBtn" disabled>
@@ -58,13 +62,21 @@
         <label class="field">
           <span>Скорость, бод</span>
           <select id="baud">
-            <option>9600</option><option>19200</option><option>57600</option><option>115200</option>
+            <option>9600</option><option>19200</option><option>57600</option><option selected>115200</option>
           </select>
         </label>
         <button class="btn icon" id="refreshBtn" title="Обновить список портов" aria-label="Обновить список портов">
           <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12.5 7.5a5 5 0 1 1-1.6-3.7M12.5 2v2.8H9.7"/></svg>
         </button>
       </div>
+      <label class="field">
+        <span>Чётность (кадр 8-?-1)</span>
+        <select id="parity">
+          <option value="N">Нет (8N1)</option>
+          <option value="E" selected>Even (8E1)</option>
+          <option value="O">Odd (8O1)</option>
+        </select>
+      </label>
       <button class="btn primary wide" id="connectBtn">Подключить</button>
     </section>
 
@@ -93,6 +105,11 @@
       </label>
     </section>
 
+    <section class="sec mcc-only" id="cmdSec">
+      <h2>Команды <button class="btn ghost mini" id="protoBtn" title="Открыть protocol.json">Протокол</button></h2>
+      <div id="cmdList" class="cmds"></div>
+    </section>
+
     <section class="sec stats">
       <h2>Трафик</h2>
       <dl>
@@ -101,11 +118,19 @@
         <div><dt>Принято байт</dt><dd id="sRxB">0</dd></div>
         <div><dt>Отправлено байт</dt><dd id="sTxB">0</dd></div>
         <div><dt>Ошибки</dt><dd id="sErr">0</dd></div>
+        <div><dt>Не распознано</dt><dd id="sUn">0</dd></div>
       </dl>
     </section>
   </aside>
 
   <main class="center">
+    <section class="board" id="board">
+      <div class="board-head">
+        <h2>Телеметрия</h2>
+        <span class="muted" id="tmInfo"></span>
+      </div>
+      <div class="cards" id="cards"></div>
+    </section>
     <div class="feed-head">
       <span class="c-time">Время</span>
       <span class="c-dir"></span>
@@ -139,6 +164,29 @@
     <div id="inspBody" hidden></div>
   </aside>
 
+</div>
+<div class="modal" id="protoModal" hidden>
+  <div class="modal-box" role="dialog" aria-label="Протокол">
+    <div class="modal-head">
+      <div><b>Протокол</b> <span class="muted" id="protoPath"></span></div>
+      <button class="btn ghost icon" id="protoClose" aria-label="Закрыть">✕</button>
+    </div>
+    <details class="help">
+      <summary>Справка по формату</summary>
+      <div>
+        <p><b>telemetry[]</b> — кадры. <code>match</code>: <code>device_id, type, type_input, packet_number, size, min_size, prefix</code> (значение или список). Первый подошедший кадр декодирует пакет.</p>
+        <p><b>fields[]</b>: <code>name</code>, <code>type</code> (u8 i8 u16 i16 u32 i32 u64 i64 f32 f64 bool str hex regex), <code>offset</code> (в данных), <code>length</code> (str/hex), <code>scale</code>, <code>add</code>, <code>unit</code>, <code>decimals</code>, <code>bit</code>, <code>mask</code>, <code>enum</code> {"0":"выкл"}, <code>regex</code> (группа 1), пороги <code>warn_min warn_max crit_min crit_max</code>, <code>bad_values</code>.</p>
+        <p><b>commands[]</b>: <code>id</code>, <code>name</code>, <code>description</code>, <code>text</code> ("LED {state}") <u>или</u> <code>bytes</code> ("A5 01 {n}", HEX-байты и параметры), <code>params[]</code> (<code>name label type min max default options</code>), <code>suffix</code>, <code>confirm</code>, <code>danger</code>, <code>alarm</code>.</p>
+        <p><code>byte_order</code>: "little"/"big" — глобально, можно переопределить в кадре или команде. Файл применяется сразу после сохранения; можно править и во внешнем редакторе.</p>
+      </div>
+    </details>
+    <textarea id="protoText" spellcheck="false"></textarea>
+    <div class="modal-foot">
+      <span class="proto-err" id="protoErr"></span>
+      <button class="btn" id="protoFmt">Выровнять</button>
+      <button class="btn primary" id="protoSave">Сохранить</button>
+    </div>
+  </div>
 </div>
 <div class="toasts" id="toasts" aria-live="polite"></div>
 <script src="/static/app.js"></script>

@@ -12,6 +12,8 @@ from datetime import datetime
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 
+from protocol import Protocol
+
 try:
     import serial
     import serial.tools.list_ports
@@ -29,6 +31,7 @@ UART_NAMES = {0: "Serial", 1: "Serial1", 2: "Serial2", 3: "Serial3"}
 DEMO_PORT = "DEMO"
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
+proto = Protocol()
 
 
 class PacketParser:
@@ -66,6 +69,75 @@ class PacketParser:
                 self.buffer.clear()
                 return
             del self.buffer[:min(positions)]
+
+
+class CcsdsParser:
+    """Поток «как есть»: подряд идущие пакеты с 6-байтовым заголовком (как шлёт спутник)."""
+
+    HEADER = 6
+
+    def __init__(self, callback):
+        self.buffer = bytearray()
+        self.callback = callback
+        self.synced = False
+
+    def _total(self, pos, cfg):
+        """Длина пакета, начинающегося с pos, или None, если заголовок не подходит."""
+        b = self.buffer
+        if len(b) - pos < self.HEADER:
+            return 0  # пока мало байт
+        if (b[pos] >> 5) != int(cfg.get("version", 0)):
+            return None
+        apid = ((b[pos] & 0x07) << 8) | b[pos + 1]
+        if cfg.get("apids") and apid not in cfg["apids"]:
+            return None
+        total = self.HEADER + ((b[pos + 4] << 8) | b[pos + 5]) + 1
+        ok = int(cfg.get("min_packet", self.HEADER + 1)) <= total <= int(cfg.get("max_packet", MAX_PACKET_SIZE))
+        return total if ok else None
+
+    def feed(self, data, cfg):
+        self.buffer.extend(data)
+        while len(self.buffer) >= self.HEADER:
+            total = self._total(0, cfg)
+            if total is None:
+                self.synced = False
+                del self.buffer[0]
+                continue
+            if len(self.buffer) < total:
+                return
+            if not self.synced:
+                # после потери синхронизации доверяем пакету, только если за ним идёт нормальный заголовок
+                nxt = self._total(total, cfg)
+                if nxt == 0:
+                    return
+                if nxt is None:
+                    del self.buffer[0]
+                    continue
+                self.synced = True
+            self.callback("ccsds", bytes(self.buffer[:total]))
+            del self.buffer[:total]
+
+
+class StreamParser:
+    """Выбирает разбор потока по framing.mode из protocol.json (можно менять на лету)."""
+
+    def __init__(self, callback):
+        self.mode = None
+        self.markers = PacketParser(callback)
+        self.ccsds = CcsdsParser(callback)
+
+    def feed(self, data):
+        cfg = proto.data.get("framing", {})
+        mode = cfg.get("mode", "markers")
+        if mode != self.mode:
+            self.mode = mode
+            self.markers.buffer.clear()
+            self.ccsds.buffer.clear()
+            self.ccsds.synced = False
+        if mode == "ccsds":
+            self.ccsds.feed(data, cfg)
+        else:
+            self.markers.feed(data)
 
 
 def hx(data):
@@ -127,7 +199,9 @@ class Monitor:
         self.baud = None
         self.stop = threading.Event()
         self.thread = None
-        self.stats = {"rx": 0, "tx": 0, "rx_bytes": 0, "tx_bytes": 0, "errors": 0}
+        self.stats = {"rx": 0, "tx": 0, "rx_bytes": 0, "tx_bytes": 0, "errors": 0, "tm_unmatched": 0}
+        self.tm = {}
+        self.tm_version = proto.version
 
     # ---------- записи ----------
     def add(self, rec):
@@ -153,6 +227,44 @@ class Monitor:
             self.stats["rx"] += 1
             self.stats["rx_bytes"] += len(data) + 3
             self.add_radio(data)
+        elif kind == "ccsds":
+            self.stats["rx"] += 1
+            self.stats["rx_bytes"] += len(data)
+            self.add_ccsds(data)
+
+    def add_ccsds(self, data):
+        w1, w2, w3 = struct.unpack_from(">HHH", data, 0)
+        apid, counter, flags = w1 & 0x7FF, w2 & 0x3FFF, w2 >> 14
+        pkt_type = (w1 >> 12) & 1
+        payload = data[6:]
+        parsed = {"device_id": apid, "type": None, "type_input": 0, "packet_number": counter & 0x0F,
+                  "size_data": len(payload), "payload": payload, "apid": apid, "pkt_type": pkt_type,
+                  "seq_flags": flags, "counter": counter}
+        self.sync_proto()
+        tm = proto.decode(parsed)
+        if tm is None:
+            self.stats["tm_unmatched"] += 1
+        else:
+            self.update_card(tm, parsed, 0, 0)
+        kind = "телекоманда" if pkt_type else "телеметрия"
+        segs = [
+            {"name": "Версия, тип, APID", "key": "dev", "start": 0, "len": 2,
+             "value": f"APID {apid} · {kind}", "hint": f"версия {w1 >> 13}"},
+            {"name": "Флаги, счётчик", "key": "pack", "start": 2, "len": 2,
+             "value": f"флаг {flags} · № {counter}", "hint": "старшие 2 бита — сегментация"},
+            {"name": "Длина", "key": "size", "start": 4, "len": 2,
+             "value": f"{len(payload)} байт", "hint": f"в заголовке {w3} (длина − 1)"},
+            {"name": "Данные", "key": "payload", "start": 6, "len": len(payload)},
+        ]
+        summary = ", ".join(f"{f['name']} {f['text']}{' ' + f['unit'] if f['unit'] else ''}"
+                            for f in tm["fields"]) if tm else ""
+        self.add({
+            "kind": "rx", "valid": True, "alarm": False, "device_id": apid,
+            "type_name": f"CCSDS · {kind}", "packet_number": counter & 0x0F,
+            "size": len(payload), "text": hx(payload), "preview": summary or hx(payload),
+            "payload_hex": hx(payload), "raw_hex": hx(data), "frame_hex": hx(data),
+            "tail_hex": "", "segments": segs, "telemetry": tm, "tm_summary": summary,
+        })
 
     def add_radio(self, data):
         frame = bytes([MARK_DATA, len(data) & 0xFF, (len(data) >> 8) & 0xFF]) + data
@@ -166,6 +278,7 @@ class Monitor:
         text = decode_payload(parsed).replace("\r", "")
         alarm = parsed["type"] == 2 and parsed["type_input"] == 0 and text.strip() == "ALERT"
         n = parsed["size_data"]
+        tm = self.decode_telemetry(parsed, alarm)
         segs = [
             {"name": "Устройство", "key": "dev", "start": 0, "len": 1},
             {"name": "Долгота", "key": "lon", "start": 1, "len": 4},
@@ -187,10 +300,48 @@ class Monitor:
             "size": n, "text": text, "preview": "ТРЕВОГА" if alarm else (text or "пустые данные"),
             "payload_hex": hx(parsed["payload"]), "raw_hex": hx(data), "frame_hex": hx(frame),
             "tail_hex": hx(parsed["trailing"]), "segments": segs,
+            "telemetry": tm,
+            "tm_summary": ", ".join(f"{f['name']} {f['text']}{' ' + f['unit'] if f['unit'] else ''}"
+                                    for f in tm["fields"]) if tm else "",
         })
 
+    def sync_proto(self):
+        """Перечитывает protocol.json при изменении; старые карточки телеметрии сбрасываются."""
+        proto.refresh()
+        if self.tm_version != proto.version:
+            with self.lock:
+                self.tm.clear()
+                self.tm_version = proto.version
+
+    def decode_telemetry(self, parsed, alarm):
+        self.sync_proto()
+        tm = proto.decode(parsed)
+        if tm is None:
+            if not alarm:
+                self.stats["tm_unmatched"] += 1
+            return None
+        self.update_card(tm, parsed, parsed["longitude"], parsed["latitude"])
+        return tm
+
+    def update_card(self, tm, parsed, lon, lat):
+        key = f"{tm['frame']}:{parsed['device_id']}"
+        with self.lock:
+            card = self.tm.setdefault(key, {"key": key, "frame": tm["frame"], "name": tm["name"],
+                                            "device_id": parsed["device_id"], "count": 0, "fields": {}})
+            card["count"] += 1
+            card["ts"] = time.time()
+            card["time"] = datetime.now().strftime("%H:%M:%S")
+            card["lon"], card["lat"] = lon, lat
+            for f in tm["fields"]:
+                slot = card["fields"].setdefault(f["name"], {"history": []})
+                slot.update(f)
+                if isinstance(f["value"], (int, float)):
+                    slot["history"].append(f["value"])
+                    del slot["history"][:-60]
+        return tm
+
     # ---------- порт ----------
-    def connect(self, port, baud):
+    def connect(self, port, baud, parity="N"):
         if self.is_connected():
             return False, "Уже подключено"
         if port == DEMO_PORT:
@@ -199,16 +350,18 @@ class Monitor:
             if serial is None:
                 return False, "Не установлен pyserial: pip install pyserial"
             try:
-                self.ser = serial.Serial(port=port, baudrate=baud, timeout=0.05, write_timeout=1)
+                self.ser = serial.Serial(port=port, baudrate=baud, bytesize=serial.EIGHTBITS,
+                                         parity=parity, stopbits=serial.STOPBITS_ONE,
+                                         timeout=0.05, write_timeout=1)
             except (serial.SerialException, OSError, ValueError) as exc:
                 self.system(f"Ошибка подключения: {exc}", True)
                 return False, str(exc)
-        self.port_name, self.baud = port, baud
+        self.port_name, self.baud, self.parity = port, baud, parity
         self.stop = threading.Event()
         target = self._demo_loop if port == DEMO_PORT else self._read_loop
         self.thread = threading.Thread(target=target, args=(self.stop,), daemon=True)
         self.thread.start()
-        self.system(f"Подключено: {port}" + ("" if port == DEMO_PORT else f" · {baud} бод"))
+        self.system(f"Подключено: {port}" + ("" if port == DEMO_PORT else f" · {baud} 8{parity}1"))
         return True, ""
 
     def disconnect(self, log=True):
@@ -231,7 +384,7 @@ class Monitor:
         return self.thread is not None and self.thread.is_alive() and not self.stop.is_set()
 
     def _read_loop(self, stop):
-        parser = PacketParser(self.on_frame)
+        parser = StreamParser(self.on_frame)
         ser = self.ser
         while not stop.is_set():
             try:
@@ -291,9 +444,10 @@ class Monitor:
             self.system(f"Ошибка отправки: {exc}", True)
             return False, str(exc)
 
-    def add_tx(self, raw, text, alarm=False):
+    def add_tx(self, raw, text, alarm=False, command=None):
+        preview = "ТРЕВОГА" if alarm else (f"{command}: {text}" if command else text)
         self.add({"kind": "tx", "valid": True, "alarm": alarm, "size": len(raw),
-                  "text": text, "preview": "ТРЕВОГА" if alarm else text,
+                  "text": text, "preview": preview, "command": command,
                   "raw_hex": hx(raw), "frame_hex": hx(raw)})
 
 
@@ -301,6 +455,24 @@ mon = Monitor()
 
 
 # ---------- HTTP ----------
+ALLOWED_HOSTS = {"127.0.0.1:5000", "localhost:5000"}
+ALLOWED_ORIGINS = {f"http://{h}" for h in ALLOWED_HOSTS}
+
+
+@app.before_request
+def guard():
+    """Защита локального сервера от чужих сайтов (DNS rebinding и CSRF)."""
+    if request.host not in ALLOWED_HOSTS:
+        return jsonify(ok=False, error="Недопустимый адрес сервера"), 403
+    if request.method == "POST":
+        origin = request.headers.get("Origin")
+        if origin is not None and origin not in ALLOWED_ORIGINS:
+            return jsonify(ok=False, error="Запрос с чужого сайта отклонён"), 403
+        if not request.is_json:
+            return jsonify(ok=False, error="Нужен Content-Type: application/json"), 415
+    return None
+
+
 @app.get("/")
 def index():
     return send_from_directory(app.static_folder, "index.html")
@@ -330,7 +502,10 @@ def api_connect():
         baud = int(body.get("baud", 9600))
     except (TypeError, ValueError):
         return jsonify(ok=False, error="Некорректная скорость"), 400
-    ok, err = mon.connect(port, baud)
+    parity = str(body.get("parity", "N")).upper()
+    if parity not in ("N", "E", "O"):
+        return jsonify(ok=False, error="Некорректная чётность"), 400
+    ok, err = mon.connect(port, baud, parity)
     return jsonify(ok=ok, error=err), (200 if ok else 400)
 
 
@@ -366,15 +541,52 @@ def api_alarm():
     return jsonify(ok=ok, error=err), (200 if ok else 400)
 
 
+@app.get("/api/protocol")
+def api_protocol_get():
+    mon.sync_proto()
+    return jsonify(ok=True, text=proto.text, error=proto.error, path=proto.path,
+                   version=proto.version, **proto.public())
+
+
+@app.post("/api/protocol")
+def api_protocol_save():
+    body = request.get_json(silent=True) or {}
+    err = proto.save(str(body.get("text", "")))
+    if err:
+        return jsonify(ok=False, error=err), 400
+    mon.sync_proto()
+    mon.system("Протокол обновлён")
+    return jsonify(ok=True)
+
+
+@app.post("/api/command")
+def api_command():
+    body = request.get_json(silent=True) or {}
+    mon.sync_proto()
+    try:
+        raw, shown, cmd = proto.build_command(str(body.get("id", "")), body.get("params") or {},
+                                              MAX_PAYLOAD_SIZE)
+    except ValueError as exc:
+        return jsonify(ok=False, error=str(exc)), 400
+    ok, err = mon.send_bytes(raw)
+    if ok:
+        mon.add_tx(raw, shown, alarm=bool(cmd.get("alarm")), command=cmd["name"])
+    return jsonify(ok=ok, error=err), (200 if ok else 400)
+
+
 @app.get("/api/state")
 def api_state():
     since = request.args.get("since", 0, type=int)
+    mon.sync_proto()
     with mon.lock:
         new = [r for r in mon.records if r["id"] > since]
         last = mon.next_id - 1
+        telemetry = [dict(c, fields=[dict(f, name=n) for n, f in c["fields"].items()])
+                     for c in mon.tm.values()]
     return jsonify(records=new, last=last, connected=mon.is_connected(),
-                   port=mon.port_name, baud=mon.baud, stats=mon.stats,
-                   reset=since > last)
+                   port=mon.port_name, baud=mon.baud, parity=getattr(mon, "parity", "N"), stats=mon.stats,
+                   reset=since > last, telemetry=telemetry, now=time.time(),
+                   proto_version=proto.version, proto_error=proto.error)
 
 
 @app.post("/api/clear")
