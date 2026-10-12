@@ -1,0 +1,13 @@
+#!/bin/sh
+# Команды админа Глеботрона: sudo glebotron <команда>   (список: sudo glebotron --help)
+set -e
+if [ "$(id -u)" -ne 0 ]; then
+  echo "Запускайте через sudo: sudo glebotron $*" >&2
+  exit 1
+fi
+set -a
+. /etc/glebotron/glebotron.env
+set +a
+export PYTHONIOENCODING=utf-8
+cd /opt/glebotron/app
+exec runuser -u glebotron -- /opt/glebotron/venv/bin/flask --app app "$@"

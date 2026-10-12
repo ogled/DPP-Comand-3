@@ -1,0 +1,23 @@
+[Unit]
+Description=Glebotron messenger (glebotron.cosmos1562.space)
+After=network.target
+
+[Service]
+User=glebotron
+Group=glebotron
+WorkingDirectory=/opt/glebotron/app
+EnvironmentFile=/etc/glebotron/glebotron.env
+Environment=PYTHONIOENCODING=utf-8
+# 1 процесс: SQLite пишет один писатель, счётчики seq и radio_id держатся замком внутри процесса
+ExecStart=/opt/glebotron/venv/bin/gunicorn --workers 1 --threads 8 --bind 127.0.0.1:5001 --access-logfile - wsgi:app
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/glebotron
+MemoryMax=300M
+
+[Install]
+WantedBy=multi-user.target

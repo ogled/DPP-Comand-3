@@ -1,0 +1,7 @@
+__pycache__/
+*.db
+*.db-wal
+*.db-shm
+backups/
+frontend/node_modules/
+.pytest_cache/

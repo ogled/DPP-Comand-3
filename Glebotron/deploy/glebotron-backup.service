@@ -1,0 +1,6 @@
+[Unit]
+Description=Glebotron database backup
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/glebotron backup --keep 7
