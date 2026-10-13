@@ -478,7 +478,7 @@ void setup()
   {
     UsbSerial.begin(115200, SERIAL_8E1);
   }
-  Conection.begin(115200, SERIAL_8E1);
+  Conection.begin(115200);
   log("[OK] UART1 initialized");
   Wire4.begin();
   Wire1.begin();

@@ -16,7 +16,7 @@ volatile bool timerFlag = false;
 
 #define PIN_TXEN PB8
 #define PIN_RXEN PB9
-#define STANDE_FREQUENCY 450.0
+#define STANDE_FREQUENCY 440.0
 #define OUTPUT_POWER 0.1
 #define MARK_LOG    0x01
 #define MARK_DATA   0x02
@@ -74,6 +74,8 @@ void logMsg(const String& msg) {
 }
 void setup()
 {
+  pinMode(13, OUTPUT);
+  digitalWrite(13, LOW);
   pinMode(PIN_TXEN, OUTPUT);
   pinMode(PIN_RXEN, OUTPUT);
   pinMode(PA11, INPUT);
@@ -114,6 +116,8 @@ void setup()
   }
 
   setupTimer();
+  serialReceived = true;
+  delay(1000);
 }
 
 class Sender
@@ -149,7 +153,7 @@ public:
   }
   int send()
   {
-    return 0; //radio.transmit(loraBuffer, cursor);
+    return radio.transmit(loraBuffer, cursor);
   }
 private:
   uint8_t payload_start;
@@ -158,8 +162,9 @@ private:
 void loop()
 {
   if (serialReceived) {
+    digitalWrite(13, HIGH);
     serialReceived = false;
-    String input = Serial.readStringUntil('\n');
+    String input = "s"; // Serial.readStringUntil('\n');
     if(input.substring(0, 2) == "~:")
     {
       sendTo = input.substring(3, 6).toInt();
@@ -179,9 +184,11 @@ void loop()
       logMsg("[ERROR] Packet send failed, code: " + String(state));
     }
     radio.startReceive();
+    digitalWrite(13, LOW);
   }
   if(radioReceived)
   {
+    digitalWrite(13, HIGH);
     radioReceived = false;
     uint8_t rxBuffer[64];
     size_t length = radio.getPacketLength();
