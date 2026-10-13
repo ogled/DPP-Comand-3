@@ -12,23 +12,28 @@ uint8_t packetId = 0;
 constexpr uint8_t DEVICE_ID = 1;
 constexpr int32_t LONGITUDE = 55755819;
 constexpr int32_t LATITUDE = 37617644;
+constexpr uint8_t TYPE_I2C = 0;
+constexpr uint8_t TYPE_INPUT = 0;
 
-struct __attribute__((packed)) Packet {
-  uint8_t deviceId;
-  int32_t longitude;
-  int32_t latitude;
-  uint8_t type;
-  uint8_t typeInput : 4;
-  uint8_t packetNumber : 4;
-  uint8_t size_data;
-};
+constexpr size_t HEADER_SIZE = 12;
+constexpr size_t PAYLOAD_SIZE = 13;
 
-static_assert(sizeof(Packet) == 12, "Invalid packet header size");
+uint8_t packetId = 0;
+bool bmeOk = false;
 
-void logMsg(const char* msg) {
-  Serial.write(MARK_LOG);
-  Serial.write((const uint8_t*)msg, strlen(msg));
-  Serial.write('\n');
+static_assert(sizeof(float) == 4, "Float must be 4 bytes");
+
+void putUInt32LE(uint8_t* buffer, size_t& pos, uint32_t value) {
+  buffer[pos++] = value & 0xFF;
+  buffer[pos++] = (value >> 8) & 0xFF;
+  buffer[pos++] = (value >> 16) & 0xFF;
+  buffer[pos++] = (value >> 24) & 0xFF;
+}
+
+void putFloatLE(uint8_t* buffer, size_t& pos, float value) {
+  uint32_t bits;
+  memcpy(&bits, &value, sizeof(bits));
+  putUInt32LE(buffer, pos, bits);
 }
 
 void setup() {
@@ -39,7 +44,6 @@ void setup() {
 
   pinMode(PB1, INPUT);
 
-  Serial.begin(9600);
   LoRa.begin(9600);
 
   Wire.setSCL(PB8);
@@ -47,64 +51,49 @@ void setup() {
   Wire.begin();
 
   bmeOk = bme.begin(0x76, &Wire) || bme.begin(0x77, &Wire);
-
-  logMsg("[INFO] Starting up...");
-  logMsg(bmeOk ? "[INFO] BME280 initialized" : "[ERROR] BME280 not found");
-  logMsg("[INFO] UART LoRa initialized");
 }
 
 void loop() {
-  char msg[53];
+  uint8_t txBuffer[HEADER_SIZE + PAYLOAD_SIZE];
+  size_t pos = 0;
+
+  float temperature = 0.0f;
+  float pressure = 0.0f;
+  float humidity = 0.0f;
 
   if (bmeOk) {
-    float t = bme.readTemperature();
-    float p = bme.readPressure() / 100.0f;
-    float h = bme.readHumidity();
-
-    snprintf(
-      msg,
-      sizeof(msg),
-      "GLEBOTRON T=%.2fC P=%.2fhPa H=%.1f%%",
-      t, p, h
-    );
-  } else {
-    snprintf(msg, sizeof(msg), "GLEBOTRON BME280 not found");
+    temperature = bme.readTemperature();
+    pressure = bme.readPressure() / 100.0f;
+    humidity = bme.readHumidity();
   }
 
-  logMsg(msg);
+  txBuffer[pos++] = DEVICE_ID;
+
+  putUInt32LE(txBuffer, pos, (uint32_t)LONGITUDE);
+  putUInt32LE(txBuffer, pos, (uint32_t)LATITUDE);
+
+  txBuffer[pos++] = TYPE_I2C;
+  txBuffer[pos++] = ((packetId & 0x0F) << 4) | (TYPE_INPUT & 0x0F);
+  txBuffer[pos++] = PAYLOAD_SIZE;
+
+  txBuffer[pos++] = bmeOk ? 1 : 0;
+
+  putFloatLE(txBuffer, pos, temperature);
+  putFloatLE(txBuffer, pos, pressure);
+  putFloatLE(txBuffer, pos, humidity);
 
   while (!digitalRead(PB1)) {
     delay(1);
   }
 
-  Packet packet{};
-  packet.deviceId = DEVICE_ID;
-  packet.longitude = LONGITUDE;
-  packet.latitude = LATITUDE;
-  packet.type = 0;
-  packet.typeInput = 0;
-  packet.packetNumber = packetId & 0x0F;
-
-  uint8_t txBuffer[64];
-
-  size_t headerSize = sizeof(Packet);
-  size_t payloadSize = strlen(msg);
-
-  if (payloadSize > sizeof(txBuffer) - headerSize) {
-    payloadSize = sizeof(txBuffer) - headerSize;
+  for (size_t i = 0; i < pos; i++) {
+    LoRa.write(txBuffer[i]);
   }
 
-  packet.size_data = payloadSize;
-
-  memcpy(txBuffer, &packet, headerSize);
-  memcpy(txBuffer + headerSize, msg, payloadSize);
-
-  LoRa.write(txBuffer, headerSize + payloadSize);
   LoRa.flush();
 
   packetId = (packetId + 1) & 0x0F;
 
-  logMsg("[INFO] Packet written to UART LoRa");
-
   delay(10000);
 }
+
