@@ -6,8 +6,8 @@ function segValue(r, s) {
   if (s.value !== undefined) return [s.value, s.hint || ""];
   switch (s.key) {
     case "dev": return [devName(r.device_id), `ID ${r.device_id}`];
-    case "lon": return [num(r.longitude), "знаковое, 4 байта"];
-    case "lat": return [num(r.latitude), "знаковое, 4 байта"];
+    case "lon": return [`${(r.longitude / 1e6).toFixed(6)}°`, `${num(r.longitude)} × 10⁻⁶`];
+    case "lat": return [`${(r.latitude / 1e6).toFixed(6)}°`, `${num(r.latitude)} × 10⁻⁶`];
     case "type": return [r.type, r.type_name?.split(" / ")[0]];
     case "pack": return [`№ ${r.packet_number}, вход ${r.type_input}`, "старшие 4 бита — номер"];
     case "size": return [`${r.size} ${bytesWord(r.size)}`, "длина данных"];

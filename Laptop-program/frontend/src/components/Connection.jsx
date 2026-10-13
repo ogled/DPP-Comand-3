@@ -10,11 +10,30 @@ const PARITIES = [
 
 export default function Connection() {
   const ports = useStation((s) => s.ports);
+  const links = useStation((s) => s.links);
+  const openLink = useStation((s) => s.link);
   const connected = useStation((s) => s.connected);
   const online = useStation((s) => s.online);
   const [port, setPort] = usePersistent("dpp.port", "");
   const [baud, setBaud] = usePersistent("dpp.baud", 115200);
-  const [parity, setParity] = usePersistent("dpp.parity", "E");
+  const [parity, setParity] = usePersistent("dpp.parity", "N");
+  const [linkId, setLinkId] = usePersistent("dpp.link", null);
+  const link = links.find((l) => l.id === (connected ? openLink : linkId)) || links[0] || null;
+
+  // источник задаёт скорость и чётность по умолчанию (их можно поменять вручную)
+  const chooseLink = (id) => {
+    const l = links.find((x) => x.id === id);
+    setLinkId(id);
+    if (l) {
+      setBaud(l.baud);
+      setParity(l.parity);
+    }
+  };
+
+  // источник ещё не выбирался (или пропал из протокола) — берём первый вместе с его скоростью и чётностью
+  useEffect(() => {
+    if (links.length && !links.some((l) => l.id === linkId)) chooseLink(links[0].id);
+  }, [links]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // если запомненного порта нет в списке — берём первый реальный (DEMO последний)
   useEffect(() => {
@@ -27,6 +46,15 @@ export default function Connection() {
         <h2>Подключение</h2>
       </header>
       <div className="panel-body form">
+        {links.length > 1 && (
+          <label className="field">
+            <span>Источник</span>
+            <select value={link?.id ?? ""} onChange={(e) => chooseLink(e.target.value)} disabled={connected}>
+              {links.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+            {link?.description && <small className="field-hint">{link.description}</small>}
+          </label>
+        )}
         <label className="field">
           <span>Порт</span>
           <div className="field-row">
@@ -60,7 +88,7 @@ export default function Connection() {
         {connected ? (
           <button className="btn wide" onClick={disconnect}>Закрыть порт</button>
         ) : (
-          <button className="btn primary wide" onClick={() => connect(port, baud, parity)} disabled={!online || !port}>
+          <button className="btn primary wide" onClick={() => connect(port, baud, parity, link?.id)} disabled={!online || !port}>
             Открыть порт
           </button>
         )}

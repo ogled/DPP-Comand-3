@@ -20,6 +20,8 @@ let state = {
   protoVersion: null,
   protoError: "",
   commands: [],
+  links: [],
+  link: null,
   ports: [],
   seriesRev: 0,
   toasts: [],
@@ -73,7 +75,7 @@ function ingest(recs) {
   let touched = false;
   for (const r of recs) {
     if (r.kind !== "rx" || !r.telemetry || !r.ts) continue;
-    const unit = unitKey(r.telemetry.frame, r.device_id);
+    const unit = unitKey(r.telemetry.card ?? r.telemetry.frame, r.device_id);
     const arr = arrivals.get(unit) || [];
     arr.push(r.ts);
     if (arr.length > 30) arr.splice(0, arr.length - 30);
@@ -128,6 +130,7 @@ export async function poll() {
       baud: d.baud,
       parity: d.parity || "N",
       connectedAt: d.connected_at ?? null,
+      link: d.link ?? null,
       stats: d.stats,
       telemetry: d.telemetry || [],
       clockOffset: d.now ? d.now - Date.now() / 1000 : 0,
@@ -175,7 +178,7 @@ export async function loadPorts() {
 export async function loadProtocol() {
   try {
     const d = await fetch("/api/protocol").then((r) => r.json());
-    set({ commands: d.commands || [], protoError: d.error || "" });
+    set({ commands: d.commands || [], links: d.links || [], protoError: d.error || "" });
     return d;
   } catch {
     return null;
@@ -188,8 +191,8 @@ export async function saveProtocol(text) {
   return res;
 }
 
-export async function connect(port, baud, parity) {
-  const res = await post("/api/connect", { port, baud, parity });
+export async function connect(port, baud, parity, link) {
+  const res = await post("/api/connect", { port, baud, parity, link });
   if (!res.ok) toast(res.error || "Не удалось открыть порт", true);
   poll();
 }

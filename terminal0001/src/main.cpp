@@ -17,9 +17,8 @@ constexpr uint8_t TYPE_INPUT = 0;
 
 constexpr size_t HEADER_SIZE = 12;
 constexpr size_t PAYLOAD_SIZE = 13;
-
-uint8_t packetId = 0;
-bool bmeOk = false;
+const char NO_SENSOR_MSG[] = "no sensor";
+constexpr size_t NO_SENSOR_SIZE = sizeof(NO_SENSOR_MSG) - 1;
 
 static_assert(sizeof(float) == 4, "Float must be 4 bytes");
 
@@ -57,14 +56,8 @@ void loop() {
   uint8_t txBuffer[HEADER_SIZE + PAYLOAD_SIZE];
   size_t pos = 0;
 
-  float temperature = 0.0f;
-  float pressure = 0.0f;
-  float humidity = 0.0f;
-
-  if (bmeOk) {
-    temperature = bme.readTemperature();
-    pressure = bme.readPressure() / 100.0f;
-    humidity = bme.readHumidity();
+  if (!bmeOk) {
+    bmeOk = bme.begin(0x76, &Wire) || bme.begin(0x77, &Wire);
   }
 
   txBuffer[pos++] = DEVICE_ID;
@@ -74,13 +67,17 @@ void loop() {
 
   txBuffer[pos++] = TYPE_I2C;
   txBuffer[pos++] = ((packetId & 0x0F) << 4) | (TYPE_INPUT & 0x0F);
-  txBuffer[pos++] = PAYLOAD_SIZE;
+  txBuffer[pos++] = bmeOk ? PAYLOAD_SIZE : NO_SENSOR_SIZE;
 
-  txBuffer[pos++] = bmeOk ? 1 : 0;
-
-  putFloatLE(txBuffer, pos, temperature);
-  putFloatLE(txBuffer, pos, pressure);
-  putFloatLE(txBuffer, pos, humidity);
+  if (bmeOk) {
+    txBuffer[pos++] = 1;
+    putFloatLE(txBuffer, pos, bme.readTemperature());
+    putFloatLE(txBuffer, pos, bme.readPressure() / 100.0f);
+    putFloatLE(txBuffer, pos, bme.readHumidity());
+  } else {
+    memcpy(&txBuffer[pos], NO_SENSOR_MSG, NO_SENSOR_SIZE);
+    pos += NO_SENSOR_SIZE;
+  }
 
   while (!digitalRead(PB1)) {
     delay(1);

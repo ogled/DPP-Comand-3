@@ -119,30 +119,100 @@ class CcsdsParser:
             del self.buffer[:total]
 
 
-class StreamParser:
-    """Выбирает разбор потока по framing.mode из protocol.json (можно менять на лету)."""
+class HeaderParser:
+    """Сырой поток LoRa-модема (как у Терминала 1): 12 байт заголовка + size_data байт данных.
+
+    Модем выдаёт пакет одной пачкой, поэтому пауза в потоке тоже считается границей пакета:
+    недособранный хвост и байты не по формату показываются в ленте как есть, а не теряются.
+    """
+
+    GAP = 0.3  # с
 
     def __init__(self, callback):
+        self.buffer = bytearray()
+        self.junk = bytearray()
+        self.callback = callback
+        self.last = 0.0
+
+    def _flush(self):
+        self.junk.extend(self.buffer)
+        self.buffer.clear()
+        if self.junk:
+            self.callback("junk", bytes(self.junk))
+            self.junk.clear()
+
+    def idle(self, cfg):
+        if (self.buffer or self.junk) and time.monotonic() - self.last > float(cfg.get("gap", self.GAP)):
+            self._flush()
+
+    def feed(self, data, cfg):
+        self.idle(cfg)
+        self.last = time.monotonic()
+        self.buffer.extend(data)
+        max_type = int(cfg.get("max_type", 8))
+        while len(self.buffer) >= HEADER_SIZE:
+            size = self.buffer[11]
+            if size > MAX_PAYLOAD_SIZE or self.buffer[9] > max_type:
+                self.junk.append(self.buffer.pop(0))
+                continue
+            total = HEADER_SIZE + size
+            if len(self.buffer) < total:
+                return
+            if self.junk:
+                self.callback("junk", bytes(self.junk))
+                self.junk.clear()
+            self.callback("packet", bytes(self.buffer[:total]))
+            del self.buffer[:total]
+
+
+class StreamParser:
+    """Разбор потока по режиму выбранного источника (links в protocol.json, читается на лету)."""
+
+    def __init__(self, callback, get_cfg):
+        self.get_cfg = get_cfg
         self.mode = None
         self.markers = PacketParser(callback)
         self.ccsds = CcsdsParser(callback)
+        self.header = HeaderParser(callback)
 
-    def feed(self, data):
-        cfg = proto.data.get("framing", {})
+    def _cfg(self):
+        cfg = self.get_cfg()
         mode = cfg.get("mode", "markers")
         if mode != self.mode:
             self.mode = mode
-            self.markers.buffer.clear()
-            self.ccsds.buffer.clear()
+            for part in (self.markers, self.ccsds, self.header):
+                part.buffer.clear()
             self.ccsds.synced = False
+            self.header.junk.clear()
+        return cfg, mode
+
+    def feed(self, data):
+        cfg, mode = self._cfg()
         if mode == "ccsds":
             self.ccsds.feed(data, cfg)
+        elif mode == "header":
+            self.header.feed(data, cfg)
         else:
             self.markers.feed(data)
+
+    def idle(self):
+        cfg, mode = self._cfg()
+        if mode == "header":
+            self.header.idle(cfg)
 
 
 def hx(data):
     return bytes(data).hex(" ")
+
+
+def is_ccsds(data):
+    """Пакет спутника: 6 байт заголовка CCSDS, длина в заголовке совпадает точно."""
+    return len(data) >= 7 and (data[0] >> 5) == 0 and 6 + ((data[4] << 8) | data[5]) + 1 == len(data)
+
+
+def is_header_exact(data):
+    """Пакет с 12-байтовым заголовком (Терминал 1, Earth): size_data совпадает с длиной точно."""
+    return HEADER_SIZE <= len(data) <= MAX_PACKET_SIZE and data[11] == len(data) - HEADER_SIZE
 
 
 def parse_packet(data):
@@ -203,6 +273,11 @@ class Monitor:
         self.stats = {"rx": 0, "tx": 0, "rx_bytes": 0, "tx_bytes": 0, "errors": 0, "tm_unmatched": 0}
         self.tm = {}
         self.tm_version = proto.version
+        self.link_id = None
+        self.connected_at = None
+
+    def link_cfg(self):
+        return proto.link(self.link_id)
 
     # ---------- записи ----------
     def add(self, rec):
@@ -225,16 +300,38 @@ class Monitor:
     def on_frame(self, kind, data):
         if kind == "log":
             self.system(data.decode("utf-8", errors="replace"))
-        elif kind == "data":
-            self.stats["rx"] += 1
+            return
+        self.stats["rx"] += 1
+        if kind == "data":  # пакет из радиоканала, завёрнутый приёмником Earth в 0x02 + длина
             self.stats["rx_bytes"] += len(data) + 3
-            self.add_radio(data)
+            self.add_packet(data, bytes([MARK_DATA, len(data) & 0xFF, (len(data) >> 8) & 0xFF]) + data)
+        elif kind == "packet":  # сырой пакет от LoRa-модема
+            self.stats["rx_bytes"] += len(data)
+            self.add_packet(data, data)
         elif kind == "ccsds":
-            self.stats["rx"] += 1
             self.stats["rx_bytes"] += len(data)
             self.add_ccsds(data)
+        elif kind == "junk":
+            self.stats["rx_bytes"] += len(data)
+            self.add_junk(data)
 
-    def add_ccsds(self, data):
+    def add_packet(self, data, frame):
+        """Формат вложенного пакета определяем по содержимому: CCSDS спутника или 12-байтовый заголовок."""
+        if is_ccsds(data) and not is_header_exact(data):
+            self.add_ccsds(data, frame)
+        else:
+            self.add_radio(data, frame)
+
+    def add_junk(self, data):
+        self.stats["errors"] += 1
+        text = data.decode("utf-8", errors="replace").strip()
+        printable = text and sum(ch.isprintable() for ch in text) >= 0.9 * len(text)
+        self.add({"kind": "rx", "valid": False, "size": len(data),
+                  "preview": f"Не по формату: {text}" if printable else f"Не по формату: {hx(data)}",
+                  "text": text if printable else "", "raw_hex": hx(data), "frame_hex": hx(data),
+                  "segments": [{"name": "Данные", "key": "raw", "start": 0, "len": len(data)}]})
+
+    def add_ccsds(self, data, frame=None):
         w1, w2, w3 = struct.unpack_from(">HHH", data, 0)
         apid, counter, flags = w1 & 0x7FF, w2 & 0x3FFF, w2 >> 14
         pkt_type = (w1 >> 12) & 1
@@ -264,12 +361,13 @@ class Monitor:
             "kind": "rx", "valid": True, "alarm": False, "device_id": apid,
             "type_name": kind, "proto": "ccsds", "packet_number": counter & 0x0F,
             "size": len(payload), "text": hx(payload), "preview": summary or hx(payload),
-            "payload_hex": hx(payload), "raw_hex": hx(data), "frame_hex": hx(data),
+            "payload_hex": hx(payload), "raw_hex": hx(data), "frame_hex": hx(frame or data),
             "tail_hex": "", "segments": segs, "telemetry": tm, "tm_summary": summary,
         })
 
-    def add_radio(self, data):
-        frame = bytes([MARK_DATA, len(data) & 0xFF, (len(data) >> 8) & 0xFF]) + data
+    def add_radio(self, data, frame=None):
+        if frame is None:
+            frame = bytes([MARK_DATA, len(data) & 0xFF, (len(data) >> 8) & 0xFF]) + data
         parsed = parse_packet(data)
         if parsed is None:
             self.stats["errors"] += 1
@@ -326,10 +424,17 @@ class Monitor:
         return tm
 
     def update_card(self, tm, parsed, lon, lat):
-        key = f"{tm['frame']}:{parsed['device_id']}"
+        # несколько кадров с одинаковым "card" (например, «есть датчик» / «нет датчика») ведут одну карточку
+        key = f"{tm['card']}:{parsed['device_id']}"
         with self.lock:
-            card = self.tm.setdefault(key, {"key": key, "frame": tm["frame"], "name": tm["name"],
+            card = self.tm.setdefault(key, {"key": key, "frame": tm["card"], "name": tm["name"],
                                             "device_id": parsed["device_id"], "count": 0, "fields": {}})
+            card["name"] = tm["name"]
+            fresh = {f["name"] for f in tm["fields"]}
+            for name, slot in card["fields"].items():
+                if name not in fresh:  # поля не было в последнем пакете — значение устарело
+                    slot["state"] = "err"
+                    slot["note"] = "Нет в последнем пакете"
             card["count"] += 1
             card["ts"] = time.time()
             card["time"] = datetime.now().strftime("%H:%M:%S")
@@ -343,7 +448,7 @@ class Monitor:
         return tm
 
     # ---------- порт ----------
-    def connect(self, port, baud, parity="N"):
+    def connect(self, port, baud, parity="N", link_id=None):
         if self.is_connected():
             return False, "Уже подключено"
         if port == DEMO_PORT:
@@ -359,12 +464,14 @@ class Monitor:
                 self.system(f"Ошибка подключения: {exc}", True)
                 return False, str(exc)
         self.port_name, self.baud, self.parity = port, baud, parity
+        self.link_id = proto.link(link_id)["id"]
         self.connected_at = time.time()
         self.stop = threading.Event()
         target = self._demo_loop if port == DEMO_PORT else self._read_loop
         self.thread = threading.Thread(target=target, args=(self.stop,), daemon=True)
         self.thread.start()
-        self.system(f"Подключено: {port}" + ("" if port == DEMO_PORT else f" · {baud} 8{parity}1"))
+        link = self.link_cfg()["name"]
+        self.system(f"Подключено: {port}, {link}" + ("" if port == DEMO_PORT else f", {baud} 8{parity}1"))
         return True, ""
 
     def disconnect(self, log=True):
@@ -387,7 +494,7 @@ class Monitor:
         return self.thread is not None and self.thread.is_alive() and not self.stop.is_set()
 
     def _read_loop(self, stop):
-        parser = StreamParser(self.on_frame)
+        parser = StreamParser(self.on_frame, self.link_cfg)
         ser = self.ser
         while not stop.is_set():
             try:
@@ -397,6 +504,7 @@ class Monitor:
                 if count:
                     parser.feed(ser.read(count))
                 else:
+                    parser.idle()
                     stop.wait(0.01)
             except Exception as exc:  # noqa: BLE001
                 if not stop.is_set():
@@ -405,29 +513,31 @@ class Monitor:
                 break
 
     def _demo_loop(self, stop):
-        """Имитация спутника, чтобы пробовать интерфейс без железа."""
-        if proto.data.get("framing", {}).get("mode") == "ccsds":
+        """Имитация выбранного источника, чтобы пробовать интерфейс без железа."""
+        mode = self.link_cfg().get("mode", "markers")
+        if mode == "ccsds":
             return self._demo_ccsds(stop)
+        return self._demo_terminal(stop, via_earth=(mode == "markers"))
+
+    def _demo_terminal(self, stop, via_earth):
+        """Пакеты как у terminal0001: заголовок 12 байт + BME280 (или «no sensor»), раз в 3 с."""
         n = 0
-        lon, lat = 377_000_000, 557_000_000
-        while not stop.wait(1.4):
+        temp, press, hum = 18.0, 1004.0, 46.0
+        while not stop.wait(3.0):
             n += 1
-            lon += random.randint(-900, 900)
-            lat += random.randint(-900, 900)
-            choice = n % 4
-            if choice == 0:
-                t, ti, body = 2, 0, f"T={random.uniform(-48, -31):.1f}C P={random.randint(8200, 9600) / 100:.2f}kPa".encode()
-            elif choice == 1:
-                t, ti, body = 4, 0, struct.pack("<H", random.randint(480, 520))
-            elif choice == 2:
-                t, ti, body = 3, 0, bytes([random.randint(0, 1)])
+            temp += random.uniform(-0.2, 0.25)
+            press += random.uniform(-0.3, 0.3)
+            hum = min(100.0, max(0.0, hum + random.uniform(-1.5, 1.5)))
+            if n % 15 == 0:
+                body = b"no sensor"
             else:
-                t, ti, body = 4, 0, struct.pack("<f", random.uniform(14.2, 14.9))
-            head = struct.pack("<BiiBBB", 7, lon, lat, t, ((n % 16) << 4) | ti, len(body))
-            data = head + body
-            self.stats["rx"] += 1
-            self.stats["rx_bytes"] += len(data) + 3
-            self.add_radio(data)
+                body = bytes([1]) + struct.pack("<fff", temp, press, hum)
+            data = struct.pack("<BiiBBB", 1, 55755819, 37617644, 0, (n & 0x0F) << 4, len(body)) + body
+            if via_earth:
+                self.on_frame("log", b"[INFO] Antenna package received!")
+                self.on_frame("data", data)
+            else:
+                self.on_frame("packet", data)
 
     def _demo_ccsds(self, stop):
         """Пакеты как у StratosatSys: 6 байт заголовка CCSDS + 49 байт телеметрии (big-endian), раз в секунду."""
@@ -532,7 +642,7 @@ def api_connect():
     parity = str(body.get("parity", "N")).upper()
     if parity not in ("N", "E", "O"):
         return jsonify(ok=False, error="Некорректная чётность"), 400
-    ok, err = mon.connect(port, baud, parity)
+    ok, err = mon.connect(port, baud, parity, body.get("link"))
     return jsonify(ok=ok, error=err), (200 if ok else 400)
 
 
@@ -612,7 +722,7 @@ def api_state():
                      for c in mon.tm.values()]
     return jsonify(records=new, last=last, connected=mon.is_connected(),
                    port=mon.port_name, baud=mon.baud, parity=getattr(mon, "parity", "N"), stats=mon.stats,
-                   connected_at=getattr(mon, "connected_at", None),
+                   connected_at=mon.connected_at, link=mon.link_id,
                    reset=since > last, telemetry=telemetry, now=time.time(),
                    proto_version=proto.version, proto_error=proto.error)
 

@@ -1,15 +1,39 @@
 {
   "byte_order": "little",
   "tx_suffix": "\n",
-  "framing": {
-    "mode": "ccsds",
-    "apids": [
-      0,
-      1
-    ],
-    "min_packet": 16,
-    "max_packet": 64
-  },
+  "links": [
+    {
+      "id": "sat",
+      "name": "Спутник по кабелю",
+      "description": "UART спутника (Conection), пакеты CCSDS",
+      "mode": "ccsds",
+      "baud": 115200,
+      "parity": "N",
+      "apids": [
+        0,
+        1
+      ],
+      "min_packet": 16,
+      "max_packet": 64
+    },
+    {
+      "id": "lora",
+      "name": "LoRa-модем",
+      "description": "Сырые пакеты с 12-байтовым заголовком, как шлёт Терминал 1",
+      "mode": "header",
+      "baud": 9600,
+      "parity": "N",
+      "gap": 0.3
+    },
+    {
+      "id": "earth",
+      "name": "Приёмник Earth",
+      "description": "0x01 — лог, 0x02 + длина — пакет из эфира",
+      "mode": "markers",
+      "baud": 9600,
+      "parity": "N"
+    }
+  ],
   "telemetry": [
     {
       "id": "sat",
@@ -195,6 +219,81 @@
           "crit_min": 10,
           "warn_max": 15.5,
           "crit_max": 16,
+          "kpi": true
+        }
+      ]
+    },
+    {
+      "id": "term_bme",
+      "card": "term1",
+      "name": "Терминал 1",
+      "match": {
+        "type": 0,
+        "type_input": 0,
+        "size": 13,
+        "prefix": "01"
+      },
+      "fields": [
+        {
+          "name": "Датчик BME280",
+          "type": "u8",
+          "offset": 0,
+          "enum": {
+            "0": "нет ответа",
+            "1": "исправен"
+          },
+          "bad_values": [
+            0
+          ],
+          "kpi": true
+        },
+        {
+          "name": "Температура воздуха",
+          "type": "f32",
+          "offset": 1,
+          "unit": "°C",
+          "decimals": 1,
+          "kpi": true
+        },
+        {
+          "name": "Давление",
+          "type": "f32",
+          "offset": 5,
+          "unit": "гПа",
+          "decimals": 1,
+          "group": "Метео"
+        },
+        {
+          "name": "Влажность",
+          "type": "f32",
+          "offset": 9,
+          "unit": "%",
+          "decimals": 0,
+          "warn_max": 95,
+          "group": "Метео"
+        }
+      ]
+    },
+    {
+      "id": "term_nosensor",
+      "card": "term1",
+      "name": "Терминал 1",
+      "match": {
+        "type": 0,
+        "type_input": 0,
+        "prefix": "6E 6F 20 73 65 6E 73 6F 72"
+      },
+      "fields": [
+        {
+          "name": "Датчик BME280",
+          "type": "str",
+          "offset": 0,
+          "enum": {
+            "no sensor": "нет ответа"
+          },
+          "bad_values": [
+            "no sensor"
+          ],
           "kpi": true
         }
       ]

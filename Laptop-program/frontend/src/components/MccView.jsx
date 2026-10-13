@@ -81,6 +81,11 @@ function Annunciator({ unit, link, connected, selected, onSelect }) {
 /* ---------- связь и устройство ---------- */
 function LinkPanel({ units, unit, onUnit, link }) {
   const stats = useStation((s) => s.stats);
+  const links = useStation((s) => s.links);
+  const linkId = useStation((s) => s.link);
+  const connected = useStation((s) => s.connected);
+  const source = connected ? links.find((l) => l.id === linkId) : null;
+  const hasCoords = unit && (unit.lon || unit.lat);
   return (
     <section className="panel">
       <header className="panel-head"><h2>Связь</h2></header>
@@ -90,12 +95,16 @@ function LinkPanel({ units, unit, onUnit, link }) {
           <span className="readout-cap">с последнего пакета</span>
         </div>
         <dl className="kv">
+          {source && <div><dt>Источник</dt><dd className="text">{source.name}</dd></div>}
           <div><dt>Период пакетов</dt><dd>{link.period ? `${fmtNumber(link.period)} с` : "—"}</dd></div>
           <div><dt>Пакетов телеметрии</dt><dd>{unit ? num(unit.count) : 0}</dd></div>
           <div><dt>Не распознано</dt><dd className={stats.tm_unmatched ? "warn" : ""}>{num(stats.tm_unmatched)}</dd></div>
           <div><dt>Ошибки</dt><dd className={stats.errors ? "bad" : ""}>{num(stats.errors)}</dd></div>
           <div><dt>Принято байт</dt><dd>{num(stats.rx_bytes)}</dd></div>
           <div><dt>Отправлено команд</dt><dd>{num(stats.tx)}</dd></div>
+          {hasCoords && (
+            <div><dt>Координаты в пакете</dt><dd>{(unit.lon / 1e6).toFixed(6)}, {(unit.lat / 1e6).toFixed(6)}</dd></div>
+          )}
         </dl>
         {units.length > 1 && (
           <div className="units" role="radiogroup" aria-label="Источник телеметрии">
@@ -253,7 +262,10 @@ export default function MccView({ connection, onProtocol }) {
 
   const unit = telemetry.find((u) => u.key === unitKey) || telemetry[0] || null;
   const link = linkOf(unit, connected);
-  const numeric = unit ? unit.fields.filter((f) => typeof f.value === "number" && f.type !== "bool") : [];
+  // для графика годятся числа, а не значения из словаря («исправен», «Дежурный»)
+  const numeric = unit
+    ? unit.fields.filter((f) => typeof f.value === "number" && f.type !== "bool" && !Number.isNaN(parseFloat(f.text)))
+    : [];
   const field = unit
     ? unit.fields.find((f) => f.name === fieldSel) || numeric.find((f) => f.kpi) || numeric[0] || null
     : null;

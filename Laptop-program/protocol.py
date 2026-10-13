@@ -14,6 +14,8 @@ PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "protocol.json")
 INT_TYPES = {"u8": "B", "i8": "b", "u16": "H", "i16": "h", "u32": "I", "i32": "i",
              "u64": "Q", "i64": "q", "f32": "f", "f64": "d"}
 FIELD_TYPES = set(INT_TYPES) | {"bool", "str", "hex", "regex"}
+LINK_MODES = ("ccsds", "header", "markers")
+PARITIES = ("N", "E", "O")
 MATCH_KEYS = {"device_id", "type", "type_input", "packet_number", "size", "min_size", "prefix",
               "apid", "pkt_type", "seq_flags", "counter"}
 
@@ -33,8 +35,25 @@ def validate(data):
     if data.get("byte_order", "little") not in ("little", "big"):
         raise ValueError('byte_order: допустимо "little" или "big"')
     framing = data.get("framing", {"mode": "markers"})
-    if not isinstance(framing, dict) or framing.get("mode", "markers") not in ("markers", "ccsds"):
-        raise ValueError('framing.mode: допустимо "markers" или "ccsds"')
+    if not isinstance(framing, dict) or framing.get("mode", "markers") not in LINK_MODES:
+        raise ValueError(f'framing.mode: допустимо {", ".join(LINK_MODES)}')
+    link_ids = set()
+    for li, link in enumerate(data.get("links", [])):
+        where = f"links[{li}]"
+        if not isinstance(link, dict) or not link.get("id") or not link.get("name"):
+            raise ValueError(f'{where}: нужны поля "id" и "name"')
+        if link["id"] in link_ids:
+            raise ValueError(f'{where}: повторяется id "{link["id"]}"')
+        link_ids.add(link["id"])
+        if link.get("mode") not in LINK_MODES:
+            raise ValueError(f'{where}.mode: допустимо {", ".join(LINK_MODES)}')
+        if link.get("parity", "N") not in PARITIES:
+            raise ValueError(f'{where}.parity: допустимо "N", "E" или "O"')
+        try:
+            if int(link.get("baud", 9600)) <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ValueError(f'{where}.baud: ожидается скорость порта, например 9600')
     ids = set()
     for fi, frame in enumerate(data.get("telemetry", [])):
         where = f"telemetry[{fi}]"
@@ -166,14 +185,28 @@ class Protocol:
     def order(self):
         return "<" if self.data.get("byte_order", "little") == "little" else ">"
 
+    def links(self):
+        """Источники связи. Старый формат с одним "framing" превращается в один источник."""
+        if self.data.get("links"):
+            return self.data["links"]
+        framing = self.data.get("framing", {"mode": "markers"})
+        return [dict(framing, id="default", name="Поток по протоколу")]
+
+    def link(self, link_id):
+        links = self.links()
+        return next((l for l in links if l["id"] == link_id), links[0])
+
     def public(self):
-        """Часть конфига, нужная интерфейсу (кнопки команд)."""
+        """Часть конфига, нужная интерфейсу (источники и кнопки команд)."""
         cmds = []
         for c in self.data.get("commands", []):
             item = {k: c.get(k) for k in ("id", "name", "description", "confirm", "danger")}
             item["params"] = c.get("params", [])
             cmds.append(item)
-        return {"commands": cmds}
+        links = [{"id": l["id"], "name": l["name"], "mode": l.get("mode", "markers"),
+                  "baud": int(l.get("baud", 9600)), "parity": l.get("parity", "N"),
+                  "description": l.get("description", "")} for l in self.links()]
+        return {"commands": cmds, "links": links}
 
     # ---------- телеметрия ----------
     @staticmethod
@@ -196,7 +229,7 @@ class Protocol:
         for frame in self.data.get("telemetry", []):
             if self._match(frame.get("match", {}), parsed):
                 order = "<" if frame.get("byte_order", self.data.get("byte_order", "little")) == "little" else ">"
-                return {"frame": frame["id"], "name": frame["name"],
+                return {"frame": frame["id"], "card": frame.get("card", frame["id"]), "name": frame["name"],
                         "fields": [self._field(f, parsed["payload"], order) for f in frame["fields"]]}
         return None
 
@@ -243,8 +276,9 @@ class Protocol:
             if "add" in f:
                 v = v + f["add"]
         label = None
-        if "enum" in f and isinstance(raw, (int, bool)):
-            label = f["enum"].get(str(int(raw)))
+        key = str(int(raw)) if isinstance(raw, (int, bool)) else str(raw) if isinstance(raw, str) else None
+        if "enum" in f and key is not None:
+            label = f["enum"].get(key)
         if label is not None:
             text = str(label)
         elif isinstance(v, bool):
@@ -259,7 +293,7 @@ class Protocol:
                 state = "bad"
             elif ("warn_min" in f and v < f["warn_min"]) or ("warn_max" in f and v > f["warn_max"]):
                 state = "warn"
-        if isinstance(raw, (int, bool)) and str(int(raw)) in [str(x) for x in f.get("bad_values", [])]:
+        if key is not None and key in [str(x) for x in f.get("bad_values", [])]:
             state = "bad"
         out.update(value=(v if isinstance(v, (int, float, str)) and not isinstance(v, bool) else int(v)),
                    text=text, state=state)
