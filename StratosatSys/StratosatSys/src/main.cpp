@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #define DEBUG_ACTIVE true
+volatile bool USE_TEMP_2 = false;
 #include <LSM6DS3.h>
 #include <LIS3MDL.h>
 #include <MS5611.h>
@@ -65,7 +66,7 @@ LM75A temp(Wire1, 0x4A);   // Датчик температуры на плат�
 LM75A temp2(Wire1, 0x4C);  // Датчик температуры на плате связи
 
 Uart Conection(PA10, PA9);
-Uart UsbSerial(PA10, PA9); // TODO
+Uart UsbSerial(PA3, PA2);
 uint8_t mode = 0; /*
     0 - Дежурный     - базовый режим
     1 - Аварийный    - защита аппарата
@@ -73,12 +74,12 @@ uint8_t mode = 0; /*
     */
 uint8_t lastMode = 0;
 unsigned long last_check_health_time = 0;
-unsigned long freq_cheal_health = 5000;
+unsigned long freq_cheal_health = 1000;
 uint16_t sourceIdDataUsefullData = 1;
 bool IsPayloadReady = true;
 
 uint16_t sourceIdDataTelemetryData = 0;
-#define TIME_TELEMETRY 30000
+#define TIME_TELEMETRY 5000
 unsigned long timeTelinetry = TIME_TELEMETRY;
 unsigned long lastTimeTelemetrySend = 0;
 
@@ -421,8 +422,15 @@ bool cheackHealth()
   error_code = 0;
   bool is_healthy = true;
 
-  float t1 = temp.GetTemperature();
-  float t2 = temp2.GetTemperature();
+  float t2, t1 = temp.GetTemperature();
+  if (USE_TEMP_2)
+  {
+    t2 = temp2.GetTemperature();
+  }
+  else
+  {
+    t2 = t1;
+  }
   if (t1 < -20.0 || t2 < -20.0)
   {
     log("[CRITICAL] Temperature low of limit! T1: " + String(t1) + " T2: " + String(t2));
@@ -461,6 +469,7 @@ bool cheackHealth()
 
 void setup()
 {
+  USE_TEMP_2 = false;
   pinMode(USER_LED_PIN, OUTPUT);
   digitalWrite(USER_LED_PIN, HIGH);
   SD.setDx(PC8, PC9, PC10, PC11);
@@ -485,32 +494,32 @@ void setup()
 
   log("[OK] I2C initialized");
 
-  if (!sm.InitGyro())
+  if (sm.InitGyro())
   {
     error_code = 5;
     log("[ERROR] Gyro no init");
   }
-  if (!sm.InitAccel())
+  if (sm.InitAccel())
   {
     error_code = 6;
     log("[ERROR] Acel no init");
   }
-  if (!magn.Init())
+  if (magn.Init())
   {
     error_code = 7;
     log("[ERROR] Magn no init");
   }
-  if (!bar.Init())
+  if (bar.Init())
   {
     error_code = 8;
     log("[ERROR] Bar no init");
   }
-  if (!temp.Init())
+  if (temp.Init())
   {
     error_code = 9;
     log("[ERROR] Temp no init");
   }
-  if (!temp2.Init())
+  if (temp2.Init() && USE_TEMP_2)
   {
     error_code = 10;
     log("[ERROR] Temp2 no init");
@@ -596,10 +605,16 @@ void sendTelemetry() // TODO
 
   res[28] = (temp.GetTemperatureTimes8() >> 8) & 0xFF; // Температура 1 датчика температуры
   res[29] = temp.GetTemperatureTimes8() & 0xFF;
-
-  res[30] = (temp2.GetTemperatureTimes8() >> 8) & 0xFF; // Температура 2 датчика температуры
-  res[31] = temp2.GetTemperatureTimes8() & 0xFF;
-
+  if (USE_TEMP_2)
+  {
+    res[30] = (temp2.GetTemperatureTimes8() >> 8) & 0xFF; // Температура 2 датчика температуры
+    res[31] = temp2.GetTemperatureTimes8() & 0xFF;
+  }
+  else
+  {
+    res[30] = res[28];
+    res[31] = res[29];
+  }
   res[32] = error_code;                                                                      // Код ошибки в норме 0
   res[33] = mode;                                                                            // Текущий режим работы
   res[34] = (sd_active ? 0x80 : 0) | (PayloadReady() ? 0x40 : 0);
@@ -610,10 +625,7 @@ void sendTelemetry() // TODO
   Sender.sendBigData(res, 49, sourceIdDataTelemetryData, true);
   digitalWrite(USER_LED_PIN, LOW);
 }
-void loop() {
-  Conection.println("ss");
-}
-/* void loop()
+void loop()
 {
   if (mode != 0 && mode != 4 && mode != 3)
   {
@@ -637,7 +649,7 @@ void loop() {
     Sender.update();
     consumeCommandByte(static_cast<uint8_t>(Conection.read()));
   }
-} */
+}
 
 void log(const char *value)
 {

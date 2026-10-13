@@ -6,7 +6,7 @@
 SX1268 radio = new Module(A4, A1, PB0, A2); // NSS, DIO1, RESET, BUSY
 int32_t  longitude = 52031700;
 int32_t  latitude  = 113501000;
-uint16_t ID = 2;
+uint16_t ID = 1;
 uint8_t  packetId = 0;
 uint8_t sendTo = 0;
 
