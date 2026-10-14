@@ -1,130 +1,146 @@
+// Glebotron terminal, ESP32-S3 + E32 LoRa module.
+//
+// A local LoRa chat that phones join over the terminal's own Wi-Fi
+// access point. When the terminal is also connected to a network with
+// internet, it links its channel to cosmos1562.space/glebotron and does
+// mission control's job: people on the site can write to it, anyone at
+// the terminal can write to them with "@callsign text", and messages for
+// terminals that are offline go up to the payload to carry.
+//
+// Every message on air is a MSG line that says who it is from and who
+// it is for (satproto.h).
+//
+//   radio  - the E32 module, one line of text per message
+//   msg    - MSG lines: from, to, text
+//   satlink- the payload's dumps: what is for us, RESET CACHE, resending
+//   camlink- /cam: a photo from the payload's camera
+//   chat   - the channel log the page shows
+//   site   - the link to the site, in its own task
+//   net    - access point, captive portal, Wi-Fi client
+//   web    - the page and its JSON API
+//   config - settings in flash
+//
+// Hold BOOT for 5 s to wipe settings and saved Wi-Fi (a forgotten PIN).
 #include <Arduino.h>
-#include <WiFi.h>
-#include <WebServer.h>
-#include <DNSServer.h>
+#include "camlink.h"
+#include "chat.h"
+#include "config.h"
+#include "msg.h"
+#include "net.h"
+#include "radio.h"
+#include "satlink.h"
+#include "satproto.h"
+#include "site.h"
+#include "web.h"
 
-#define E32_RX 16
-#define E32_TX 17
-#define E32_AUX 4
+#if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32C6)
+#define BOOT_BUTTON 9
+#else
+#define BOOT_BUTTON 0
+#endif
+#define FACTORY_RESET_MS 5000
 
-IPAddress apIP(192, 168, 4, 1);
-WebServer server(80);
-DNSServer dns;
+namespace {
+uint32_t bootPressedAt = 0;
 
-struct Msg { uint32_t id; bool own; String text; };
-const int MAX_MSGS = 50;
-Msg msgs[MAX_MSGS];
-uint32_t nextId = 1;
-String rxBuf;
-uint32_t lastRx = 0;
+String me() { return String(config::get().terminal); }
 
-const char PAGE[] PROGMEM = R"rawliteral(<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LoRa Chat</title>
-<style>body{margin:0;font-family:sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;height:100vh}
-#log{flex:1;overflow-y:auto;padding:10px}.m{max-width:80%;margin:4px 0;padding:8px 12px;border-radius:12px;background:#2a2a2a;word-wrap:break-word}
-.o{background:#1f6f43;margin-left:auto}form{display:flex;gap:6px;padding:8px;background:#1b1b1b}
-input{padding:10px;border:0;border-radius:8px;background:#333;color:#eee}#t{flex:1}#n{width:80px}button{padding:10px 16px;border:0;border-radius:8px;background:#2e8b57;color:#fff}</style></head>
-<body><div id="log"></div><form id="f"><input id="n" placeholder="Ник" maxlength="12"><input id="t" placeholder="Сообщение" maxlength="180" autocomplete="off"><button>➤</button></form>
-<script>
-let s=0;const log=document.getElementById('log'),n=document.getElementById('n'),t=document.getElementById('t');
-try{n.value=localStorage.getItem('nick')||''}catch(e){}
-function add(m){const d=document.createElement('div');d.className='m'+(m.o?' o':'');d.textContent=m.t;log.appendChild(d);log.scrollTop=log.scrollHeight}
-async function poll(){try{const r=await fetch('/msgs?s='+s);const a=await r.json();a.forEach(m=>{add(m);s=m.i})}catch(e){}setTimeout(poll,1000)}
-document.getElementById('f').onsubmit=async e=>{e.preventDefault();const v=t.value.trim();if(!v)return;
-try{localStorage.setItem('nick',n.value)}catch(e){}
-const msg=(n.value.trim()?n.value.trim()+': ':'')+v;t.value='';
-await fetch('/send',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'t='+encodeURIComponent(msg)})};
-poll();
-</script></body></html>)rawliteral";
-
-void addMsg(const String& t, bool own) {
-  msgs[nextId % MAX_MSGS] = {nextId, own, t};
-  nextId++;
-}
-
-String jsonEscape(const String& s) {
-  String o;
-  for (char c : s) {
-    if (c == '"' || c == '\\') { o += '\\'; o += c; }
-    else if ((uint8_t)c >= 0x20) o += c;
+// "/cam" and the like: for the payload, not for the chat.
+void command(const String& cmd) {
+  if (cmd == "/cam") {
+    camlink::request();
+    chat::add(chat::SYS, "", "", "Запрошен снимок со спутника. Он придёт, когда спутник будет рядом.");
+  } else {
+    chat::add(chat::SYS, "", "", "Неизвестная команда " + cmd + ". Есть: /cam");
   }
-  return o;
 }
 
-void waitAux() {
-  uint32_t t = millis();
-  while (!digitalRead(E32_AUX) && millis() - t < 1000) delay(1);
+// Typed on the page. "@anton hi" or "#3 hi" is for someone; anything else
+// is for everyone in range. On air, into the log, up to the site, and -
+// if it is for someone - kept until the payload shows it has it.
+void typedHere(const String& nick, const String& typed) {
+  String trimmed = typed;
+  trimmed.trim();
+  if (trimmed.startsWith("/")) return command(trimmed);
+  String to, body;
+  msg::splitTarget(typed, to, body);
+  String text = radio::fit(nick.isEmpty() ? body : nick + ": " + body);
+  if (text.isEmpty()) return;
+  String wire = msg::build(me(), to, text);
+  if (!radio::send(wire)) return;
+  chat::add(chat::HERE, me(), to, text);
+  site::report(site::HERE, me(), to, text);
+  // Whoever it is for, the radio carries it whether or not there is Wi-Fi:
+  // keep it until the payload shows it has it.
+  if (to != MSG_EVERYONE) satlink::track(wire, 0);
 }
 
-void handleSend() {
-  String t = server.arg("t");
-  t.replace("\n", " ");
-  t.replace("\r", " ");
-  t.trim();
-  if (t.isEmpty() || t.length() > 240) { server.send(400, "text/plain", "bad"); return; }
-  waitAux();
-  Serial2.print(t);
-  Serial2.print('\n');
-  addMsg(t, true);
-  server.send(200, "text/plain", "ok");
-}
-
-void handleMsgs() {
-  uint32_t since = server.arg("s").toInt();
-  uint32_t start = nextId > MAX_MSGS ? nextId - MAX_MSGS : 1;
-  if (since + 1 > start) start = since + 1;
-  String out = "[";
-  for (uint32_t i = start; i < nextId; i++) {
-    Msg& m = msgs[i % MAX_MSGS];
-    if (out.length() > 1) out += ',';
-    out += "{\"i\":" + String(m.id) + ",\"o\":" + (m.own ? "1" : "0") + ",\"t\":\"" + jsonEscape(m.text) + "\"}";
+// Heard on air. Payload protocol goes to satlink; a MSG line from another
+// terminal is shown (it is in range, so it is part of the conversation
+// here) and passed to the site; a plain line is from older firmware.
+void heardOnAir(const String& line) {
+  if (satlink::handle(line)) return;
+  if (camlink::handle(line)) return;
+  msg::Msg m;
+  if (msg::parse(line, m)) {
+    chat::add(chat::AIR, m.from, m.to, m.text);
+    site::report(site::AIR, m.from, m.to, m.text);
+  } else {
+    chat::add(chat::AIR, "", "", line);
+    site::reportPlain(line);
   }
-  out += "]";
-  server.send(200, "application/json", out);
 }
 
-void flushRx() {
-  rxBuf.trim();
-  if (!rxBuf.isEmpty()) addMsg(rxBuf, false);
-  rxBuf = "";
+// From the site: a message for this terminal goes on its page; a message
+// for another terminal goes on air for the payload, and is kept until it
+// comes back in a dump.
+void fromSite() {
+  site::Outgoing m;
+  while (site::nextOutgoing(m)) {
+    String from = m.from[0] == '#' ? String(m.from + 1) : String(m.from);  // "#5" -> "5"
+    if (String(m.to) == me()) {
+      chat::add(chat::SITE, from, me(), m.text);
+      site::shown(m.id);
+      radio::send(msg::build(from, me(), m.text));  // on air as well, Wi-Fi or not
+    } else {
+      String wire = msg::build(from, String(m.to), m.text);
+      if (radio::send(wire)) satlink::track(wire, m.id);
+    }
+  }
 }
+
+void checkFactoryReset() {
+  if (digitalRead(BOOT_BUTTON) != LOW) {
+    bootPressedAt = 0;
+    return;
+  }
+  if (!bootPressedAt) bootPressedAt = millis();
+  else if (millis() - bootPressedAt > FACTORY_RESET_MS) {
+    Serial.println("factory reset");
+    config::factoryReset();
+    ESP.restart();
+  }
+}
+}  // namespace
 
 void setup() {
   Serial.begin(115200);
-  pinMode(E32_AUX, INPUT);
-  Serial2.begin(9600, SERIAL_8N1, E32_RX, E32_TX);
-
-  WiFi.mode(WIFI_AP);
-  uint8_t mac[6];
-  WiFi.softAPmacAddress(mac);
-  char ssid[20];
-  snprintf(ssid, sizeof(ssid), "LoRaChat-%02X%02X", mac[4], mac[5]);
-  WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
-  WiFi.softAP(ssid, nullptr, 1);
-  Serial.println(ssid);
-
-  dns.setErrorReplyCode(DNSReplyCode::NoError);
-  dns.start(53, "*", apIP);
-
-  server.on("/", [] { server.send_P(200, "text/html", PAGE); });
-  server.on("/send", HTTP_POST, handleSend);
-  server.on("/msgs", handleMsgs);
-  server.onNotFound([] {
-    server.sendHeader("Location", "http://192.168.4.1/", true);
-    server.send(302, "text/plain", "");
-  });
-  server.begin();
-
-  Serial.println(WiFi.softAPIP());
+  pinMode(BOOT_BUTTON, INPUT_PULLUP);
+  randomSeed(esp_random());
+  config::begin();
+  radio::begin();
+  net::begin();
+  site::begin();
+  web::begin(typedHere);
+  Serial.printf("terminal #%u ready\n", config::get().terminal);
 }
 
 void loop() {
-  dns.processNextRequest();
-  server.handleClient();
-  while (Serial2.available()) {
-    char c = Serial2.read();
-    lastRx = millis();
-    if (c == '\n') flushRx();
-    else if (rxBuf.length() < 256) rxBuf += c;
-  }
-  if (!rxBuf.isEmpty() && millis() - lastRx > 300) flushRx();
+  web::poll();
+  radio::poll(heardOnAir);
+  fromSite();
+  satlink::poll();
+  camlink::poll();
+  checkFactoryReset();
+  delay(2);
 }

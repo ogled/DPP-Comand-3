@@ -1,0 +1,126 @@
+# Every image fragment found in 20261014193355.log
+# status: OK = CRC-8 matches (full 40 chars, or the first N chars if cut short); BAD = damaged, data unusable
+# line numbers are Python splitlines() numbers (a few more than a plain newline count)
+
+ 3868  IMG|983|0|0a|/9j/4AAQSkZJRgABAQEAAAAAAAD/2wBDAAwICQsJ
+       -> img983 #0:OK(40 chars)
+ 3869  IMG|983|1|61|CAwLCgsODQwOEh4UEhEREiUaHBYeLCYuLSsmKikw
+       -> img983 #1:OK(40 chars)
+ 3870  IMG|983|2|f0|NkU7MDNBNCkqPFI9QUdKTU5NLzpVW1RLWkVMTUr/
+       -> img983 #2:OK(40 chars)
+ 3871  IMG|983|3|22|2wBDAQ0ODhIQEiMUFCNKMioySkpKSkpKSkpKSkpK
+       -> img983 #3:OK(40 chars)
+ 3872  IMG|983|4|9f|SkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpK
+       -> img983 #4:OK(40 chars)
+ 3873  IMG|983|5|45|SkpKSkpKSkr/xAAfAAABBQEBAQEBAQAAAAAAAAAA
+       -> img983 #5:OK(40 chars)
+ 3874  IMG|983|6|d5|AQIDBAUGBwgJCgv/xAC1EAACAQMDAgQDBQUEBAAA
+       -> img983 #6:OK(40 chars)
+ 3875  IMG|983|7|ae|AX0BAgMABBEFEiExQQYTUWEHInEUMoGRoQgjQrHB
+       -> img983 #7:OK(40 chars)
+ 3876  IMG|983|8|82|FVLR8CQzYnKCCQoWFxgZGiUmJygpKjQ1Njc4OTpD
+       -> img983 #8:OK(40 chars)
+ 3877  IMG|983|9|5a|REVGR0hJSlNUVVZXWFlaY2RlZmdoaWpzdHV2d3h5
+       -> img983 #9:OK(40 chars)
+ 3878  IMG|983|10|c1|eoOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0
+       -> img983 #10:OK(40 chars)
+ 3879  IMG|983|11|9c|tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4eLj5OXm
+       -> img983 #11:OK(40 chars)
+ 3880  IMG|983|12|73|5+jp6vHy8/T19vf4+fr/xAAfAQADAQEBAQEBAQEB
+       -> img983 #12:OK(40 chars)
+ 3881  IMG|983|13|e1|AAAAAAAAAQIDBAUGBwgJCgv/xAC1EQACAQIEBAME
+       -> img983 #13:OK(40 chars)
+ 3882  IMG|983|14|6e|BwUEBAABAncAAQIDEQQFITEGEkFRB2FxEyIygQgU
+       -> img983 #14:OK(40 chars)
+ 3883  IMG|983|15|c3|QpGhscEJIzNS8BVictEKFiQ04SXxFxgZGiYnKCkq
+       -> img983 #15:OK(40 chars)
+ 3884  IMG|983|16|89|NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlq
+       -> img983 #16:OK(40 chars)
+ 3885  IMG|983|17|a5|c3R1dnd4eXqCg4SFhoeIiYqSk5SVlpeYmZqio6Sl
+       -> img983 #17:OK(40 chars)
+ 3886  IMG|983|18|3a|pqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY
+       -> img983 #18:OK(40 chars)
+ 3887  IMG|983|19|76|2dri4+Tl5ufo6ery8/T19vf4+fr/wAARCACwAPAD
+       -> img983 #19:OK(40 chars)
+ 3888  IMG|983|20|93|ASEAAhEBAxEB/9oADAMBAAIRAxEAPwDyyigAoFIQ
+       -> img983 #20:OK(40 chars)
+ 3889  IMG|983|21|53|tGKAEpwjJoAd5JprqUoAbRQAV0/hi8it7SXzXxg0
+       -> img983 #21:OK(40 chars)
+ 3890  IMG|983|22|b6|mBPe6nCZR+8YVesr+CRR+9ww7k1Ayv4nkWW1Rd3B
+       -> img983 #22:OK(40 chars)
+ 3891  IMG|983|23|3f|OfrXITHJ46dqoBmKTFUISigAooAKKACigAooAKKA
+       -> img983 #23:OK(40 chars)
+ 3892  IMG|983|24|11|ClFAEi4apNlIQgSrAWgZIE9qhvI/lBoEU8Uu2mMU
+       -> img983 #24:OK(40 chars)
+ 3893  IMG|983|25|d7|LUsPySA0gLuoJabVa3laRz97cuMcD/69UOR0qUIs
+       -> img983 #25:OK(40 chars)
+ 3894  IMG|983|26|03|h3aJQxzULLTGMxTaYxmKKYhKWgApKACkoAKKAFpc
+       -> img983 #26:OK(40 chars)
+ 3895  IMG|983|27|d2|UAOxRtoEG2p0YikBIH9qkEntQA9ZPaib548YpjKi
+       -> img983 #27:OK(40 chars)
+ 3896  IMG|983|28|3f|pS7aAFVaNtIBcUhWmBY28VGwpDIiKZ0NADWFJimA
+       -> img983 #28:OK(40 chars)
+ 3897  IMG|983|29|bc|lJSAKbKChfL
+       -> img983 #29:BAD
+ 3898  IMG|983|30|ed|pdlADtlO2GgBoTtQU4oGAFGKAE20Y56UAPyfS+lADvKb0pCh9KAG7aM
+       -> img983 #30:OK(12 chars)
+ 3899  IMG|983|33|b8|cUAIF4pMUDENIOKAF3U0mgBppAwrxUTCgBifdprCgY00loAaaYaAE2bqlWMLQAjdKjxSA7UpSeXVCJE
+       -> img983 #33:BAD
+ 3900  IMGAbTlTPWgCb
+       -> no parsable piece (orphan)
+ 3901  IMG|983|44|22|5R0pOKAGHFNIFIDvzak9qetmasknjtPapmjgUANNJigB6p606gBppKA
+       -> img983 #44:BAD
+ 3902  IMG|983|47|e8|Gmm0AexCy56U9bUAdKokeAGNTaBiPzTCKABUzUoTFACYoxQAzHNN70A
+       -> img983 #47:BAD
+ 3903  IMG|983|50|c4|NYUm2gD3z|52|d0|U0DKUpb3quxf1NIZAxf1NRHNIYw0nNAARTNrehoG
+       -> img983 #50:BAD; img983 #52:OK(40 chars)
+ 3904  IMG|983|53xy
+       -> no parsable piece (orphan)
+ 3905  IMG|983|55|26|3iS2SJ15ya5iTrQSVZBVaSgCJhUZFIZFjk03FIYM
+       -> img983 #55:OK(40 chars)
+ 3907  IMG|983|58|c8|9FMQ8XaGn/aE9aLBcPPT1oNwgpBcYBFekFAwo70wCkNACUUANpc0AdD
+       -> img983 #58:BAD
+ 3908  IMG|983|61|3b|4O0r7ff+ZIP3MXJ96E1ADOgpDQAJ9/6AmmdaQxlJQAUtMBKQ9KAEpKAC
+       -> img983 #61:BAD
+ 3909  IMG|983|64|3a|ljXe|983|66|f0|DuaQxjVFJ0pADuWCjj5RjpUdAE1ou5pP92m3NuY+
+       -> img983 #64:BAD; img983 #983:BAD
+ 3910  IMG|98dSGagB
+       -> no parsable piece (orphan)
+ 3911  IMG|983|69|55|nm8UwtQBEzZNRMaQEDVF2oGMNRN2pAIabTGW9Ggp/vGukDUAcNslbpg
+       -> img983 #69:BAD
+ 3912  IMG|983|72|63|/jThFcf88zTEH71eqNUfmHd0N6ldCE02rEFANACmmk0gG0ZpgVLuX+D
+       -> img983 #72:BAD
+ 3913  IMG|983|75|ef|061XzQB6V4MbGcc|H2r/AGBSEKJl/u0wyL6GgYmQV701sUAM4PemEYPW
+       -> img983 #75:BAD
+ 3914  IMG|983|78|bf|IMG|983|80|05|dS7qYg3Uu6gBd1JupAO3GjeaAFEjDvT/ADGLUAJ5
+       -> img983 #78:BAD; img983 #983:BAD
+ 3915  IMGmye3agCHdR
+       -> no parsable piece (orphan)
+ 3916  IMG|983|83|7f|upgdj4dujb2sXoa66KbzEyKAPN91G6gQuOaaaQDG6UUDCmls0CK91Nt
+       -> img983 #83:BAD
+ 3917  IMG|983|86|1a|G3161TLUxibqM0AdPprf6NIBmataaN19F7HNAHSx5fJrntXtzBdtxhW5
+       -> img983 #86:BAD
+ 3918  IMG|983|89|4c|FMDPzQTmSAT|BEGIN|1|6|6
+       -> img983 #89:BAD
+ 4350  IMG|984|14|6e|BwUEBAABAncAAQIDEQQFITEGEkFRB2FxEyIygQ3FSA0ioyKQDGFRkUDG4pu
+       -> img984 #14:BAD
+ 4351  IMG|984|28|54|KAFxS4pgA6U6gAooASimAt|uKMUAKBRigApKAEpaYgpaAFpaAExSYpgJTDQAoAbSUAMxTTTAaaYaAGG
+       -> img984 #28:BAD
+ 4352  IMG|984|33|fe|mGgDpDTakBMU0igBhFNNADcUphFAxmKbQAlJQAlFMBKSgAooAWloAdR
+       -> img984 #33:BAD
+ 4353  IMG|984|36|f7|QAUUANpKAG0w77|BKbQA002mAw0w0ARmo2oA6em0hBSUgCmkUDGEU0i
+       -> img984 #36:BAD
+ 4354  IMG|984|39|4e|IMG|984|41|7c|ZimkUAMxSUAJRQAYoxQAuKkVaAJQtO20ANK1GRQA
+       -> img984 #39:BAD; img984 #984:BAD
+ 4355  IMGqtO20xDGWo2
+       -> no parsable piece (orphan)
+ 4356  IMG|984|44|50|WkMiYVGaYEZpppgNphoAiNMNAHS0UCEoNMNMBhqM0AdHS0hBRigAxRS
+       -> img984 #44:BAD
+ 4357  IMG|984|47|d9|ASmkUAJimEUDGYptACUlQA2mkUDGUmKAG4oxSATFgR0wp1Ahwp2KBBiikMcKXFABigrSAYVphFAxuKgBcUuKQxcUmKAG4
+       -> img984 #47:BAD
+ 4358  IMG|SGVnqu9
+       -> no parsable piece (orphan)
+ 4359  IMG|984|61|66|AED1C1AEZqMmmBGT6rvSGV3qJqYERqNqBkZNMoA6zFSJTJJlp9Ah1GK
+       -> img984 #61:BAD
+ 4360  IMG|984|64|58|AHYp|END
+       -> img984 #64:BAD
