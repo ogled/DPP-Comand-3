@@ -94,7 +94,9 @@ void poll(void (*onLine)(const String&), void (*onNote)(const String&)) {
     char c = port.read();
     lastByte = millis();
     if (c == '\n') finish(onLine, onNote);
-    else if (c != '\r' && rx.length() < 2 * RADIO_FRAME_MAX) rx += c;
+    // Control bytes are noise (the Nano or the E32 powering up, a garbled
+    // packet), never text: one in the log would make the page's JSON invalid.
+    else if (static_cast<uint8_t>(c) >= 0x20 && rx.length() < 2 * RADIO_FRAME_MAX) rx += c;
   }
   if (!rx.isEmpty() && millis() - lastByte > LINE_IDLE_MS) finish(onLine, onNote);
   if (busy && millis() - handedAt > OK_TIMEOUT_MS) {

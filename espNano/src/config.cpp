@@ -16,7 +16,7 @@ void copyPref(Preferences& p, const char* key, const char* fallback, char* dst, 
 void load() {
   Config c{};
   c.terminal = cfgPrefs.getUShort("id", DEFAULT_TERMINAL);
-  c.siteLink = cfgPrefs.getBool("api", true);
+  c.siteLink = false;  // no internet here
   copyPref(cfgPrefs, "url", DEFAULT_SITE_URL, c.url, sizeof c.url);
   copyPref(cfgPrefs, "tok", "", c.key, sizeof c.key);
   copyPref(cfgPrefs, "apn", "", c.apName, sizeof c.apName);

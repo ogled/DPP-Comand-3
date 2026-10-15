@@ -1,14 +1,8 @@
-// The link to cosmos1562.space/glebotron. With Wi-Fi, the terminal does
-// mission control's job: every MSG line it types, hears, or catches in a
-// payload dump goes up to the site, and the site hands it messages for
-// itself and for terminals that are offline (for the payload to carry).
-//
-//   POST {"terminal": 7, "from": 3, "to": "@anton", "text": "vasya: hi", "via": "sat",
-//         "ack": [41], "stored": [44]}
-//   <-   {"ok": true, "out": [{"id": 43, "from": "@anton", "to": 7, "text": "are you there?"}]}
-//
-// The HTTP work runs in its own task, so a slow request never stalls
-// the radio or the page.
+// The link to cosmos1562.space/glebotron - which this terminal does not
+// have: it has no internet. The interface is the one espS3/ has, so the
+// rest of the code is the same; here the site is always OFF, nothing goes
+// up and nothing comes down. Messages for people on the site go up through
+// the payload instead (main.cpp tracks them while the site is not ONLINE).
 #pragma once
 #include <Arduino.h>
 #include "radio.h"

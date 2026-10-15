@@ -1,13 +1,12 @@
 // Glebotron terminal, ESP32-S3 (N8R2) on top of the Nano (nano/), whose
-// E32 LoRa module is the radio. Same terminal as espS3/, but the S3 has no
-// E32 of its own: it talks to the Nano over its Serial (radio.h has the wiring).
+// E32 LoRa module is the radio, with no internet. Same terminal as
+// terminal0002/, but the S3 has no E32 of its own: it talks to the Nano over
+// its Serial (radio.h has the wiring).
 //
 // A local LoRa chat that phones join over the terminal's own Wi-Fi
-// access point. When the terminal is also connected to a network with
-// internet, it links its channel to cosmos1562.space/glebotron and does
-// mission control's job: people on the site can write to it, anyone at
-// the terminal can write to them with "@callsign text", and messages for
-// terminals that are offline go up to the payload to carry.
+// access point - and that is all the Wi-Fi it has. Anyone at the terminal
+// can still write to people on the site with "@callsign text": that goes
+// up to the payload, which carries it to mission control.
 //
 // Every message on air is a MSG line that says who it is from and who
 // it is for (satproto.h).
@@ -17,12 +16,12 @@
 //   satlink- the payload's dumps: what is for us, RESET CACHE, resending
 //   camlink- /cam: a photo from the payload's camera
 //   chat   - the channel log the page shows
-//   site   - the link to the site, in its own task
-//   net    - access point, captive portal, Wi-Fi client
+//   site   - the link to the site: always off here
+//   net    - access point and captive portal, nothing else
 //   web    - the page and its JSON API
 //   config - settings in flash
 //
-// Hold BOOT for 5 s to wipe settings and saved Wi-Fi (a forgotten PIN).
+// Hold BOOT for 5 s to wipe settings (a forgotten PIN).
 #include <Arduino.h>
 #include "camlink.h"
 #include "chat.h"

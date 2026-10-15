@@ -118,7 +118,10 @@ void task(void*) {
     if (!cfg.siteLink || !cfg.key[0]) continue;  // nowhere to send it
     if (WiFi.status() != WL_CONNECTED) {
       if (have) xQueueSendToFront(reports, &line, 0);  // report it once Wi-Fi is back
-      waitMs = 1000;
+      // Sleep, not waitMs: with the line back in the queue the next receive
+      // returns at once, and the task would spin on core 0 until the
+      // watchdog restarts the board.
+      vTaskDelay(pdMS_TO_TICKS(1000));
       continue;
     }
 
@@ -130,13 +133,13 @@ void task(void*) {
       if (uxQueueMessagesWaiting(reports)) waitMs = 0;
     } else if (code == 401 || code == 403) {
       Serial.printf("site: key refused (%d)\n", code);
-      waitMs = BAD_KEY_MS;
+      vTaskDelay(pdMS_TO_TICKS(BAD_KEY_MS));  // lines waiting in the queue would not let waitMs wait
     } else {
       Serial.printf("site: %d\n", code);
       // Network or server trouble: keep the line. A 4xx would fail the same way twice.
       if (have && (code < 0 || code >= 500)) xQueueSendToFront(reports, &line, 0);
       client.stop();
-      waitMs = RETRY_MS;
+      vTaskDelay(pdMS_TO_TICKS(RETRY_MS));  // the line is back in the queue: waitMs would not wait
     }
   }
 }

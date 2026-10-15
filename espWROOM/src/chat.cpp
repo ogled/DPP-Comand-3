@@ -30,12 +30,22 @@ uint32_t now() {
   time_t t = time(nullptr);
   return t > 1700000000 ? static_cast<uint32_t>(t) : 0;
 }
+
+// Control characters as spaces. ArduinoJson writes most of them as they
+// are, and one raw in /api/lines makes the page's JSON.parse throw on
+// every poll: nothing in the log would ever show again.
+String clean(const String& s) {
+  String out = s;
+  for (size_t i = 0; i < out.length(); i++)
+    if (static_cast<uint8_t>(out[i]) < 0x20) out.setCharAt(i, ' ');
+  return out;
+}
 }  // namespace
 
 namespace chat {
 
 void add(Origin origin, const String& from, const String& to, const String& text, uint32_t img) {
-  lines[nextId % KEEP] = {nextId, origin, now(), from, to, text, img};
+  lines[nextId % KEEP] = {nextId, origin, now(), clean(from), clean(to), clean(text), img};
   nextId++;
 }
 

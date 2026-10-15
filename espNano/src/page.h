@@ -112,25 +112,11 @@ border-radius:var(--r) var(--r) 0 0;padding:16px;padding-bottom:max(18px,env(saf
   </div>
   <div id="admin" class="sec" hidden>
     <div class="tabs" role="tablist">
-      <button class="tab" role="tab" aria-selected="true" data-t="0">Wi-Fi</button>
-      <button class="tab" role="tab" aria-selected="false" data-t="1">Терминал</button>
-      <button class="tab" role="tab" aria-selected="false" data-t="2">Доступ</button>
+      <button class="tab" role="tab" aria-selected="true" data-t="0">Терминал</button>
+      <button class="tab" role="tab" aria-selected="false" data-t="1">Доступ</button>
     </div>
     <div class="sec">
-      <div class="card"><i class="dot" id="wd"></i><div id="ws"></div></div>
-      <div class="lh">Сети рядом<button class="lk" id="rescan">Обновить</button></div>
-      <div id="nets"></div>
-      <div id="join" class="sec" hidden>
-        <label class="fl" id="wpl">Пароль сети<input class="in" id="wp" type="password" maxlength="64"></label>
-        <button class="btn pri" id="connect">Подключить</button>
-      </div>
-      <div class="msg" id="wm"></div>
-    </div>
-    <div class="sec" hidden>
       <label class="fl">Номер терминала<input class="in num" id="c_terminal" type="number" min="1" max="999" inputmode="numeric"></label>
-      <label class="sw">Связь с сайтом<input id="c_site" type="checkbox"></label>
-      <label class="fl">Ключ сервера<input class="in num" id="c_key" type="password" maxlength="64" autocomplete="off" spellcheck="false"><span class="hint" id="keyh"></span></label>
-      <label class="fl">Адрес сервера<input class="in" id="c_url" maxlength="127" spellcheck="false"></label>
       <label class="fl">Имя точки доступа<input class="in" id="c_apName" maxlength="32"><span class="hint" id="aph"></span></label>
       <label class="sw">Открытая точка доступа<input id="c_apOpen" type="checkbox"></label>
       <label class="fl" id="appl">Пароль точки доступа<input class="in" id="c_apPass" type="password" maxlength="64"><span class="hint">От 8 символов. Пусто: без изменений</span></label>
@@ -179,7 +165,7 @@ function add(m){
 async function lines(){try{const r=await fetch('/api/lines?after='+after);for(const m of await r.json()){add(m);after=m.id}}catch(e){}setTimeout(lines,1000)}
 
 // --- status ---
-const SITE={online:['on','Сайт на связи'],key:['bad','Сайт не принял ключ'],trouble:['warn','Сайт не отвечает'],nowifi:['','Без интернета'],off:['','Без сайта']};
+const SITE={online:['on','Сайт на связи'],key:['bad','Сайт не принял ключ'],trouble:['warn','Сайт не отвечает'],nowifi:['','Без интернета'],off:['','Без интернета']};
 async function state(){try{st=await(await fetch('/api/state')).json();
   const n=String(st.terminal).padStart(3,'0');$('name').textContent='Терминал '+n;document.title=$('name').textContent;
   const [c,l]=SITE[st.site]||SITE.off;$('sd').className='dot '+c;$('ss').textContent=l;count()}catch(e){}}
@@ -212,18 +198,12 @@ function say(el,t,c){el.textContent=t;el.className='msg'+(c?' '+c:'')}
 function showLogin(err){$('login').hidden=false;$('admin').hidden=true;say($('lm'),err||'','e');$('pin').value='';setTimeout(()=>$('pin').focus(),50)}
 async function info(fill){let r;try{r=await post('/api/admin/info')}catch(e){return}
   if(r.status==403){pin='';showLogin(fill?'Неверный PIN':'Нужно войти');return}
-  const c=await r.json(),w=c.wifi;
-  $('wd').className='dot'+(w.connected?' on':'');$('ws').replaceChildren();
-  const a=document.createElement('div'),b=document.createElement('small');
-  a.textContent=w.connected?'Подключено: '+w.ssid:w.ssid?'Подключение к '+w.ssid+'…':'Не подключено к сети';
-  b.textContent=w.connected?w.ip:'Выберите сеть ниже';$('ws').append(a,b);
+  const c=await r.json();
   if(!fill)return;
   $('login').hidden=true;$('admin').hidden=false;
-  C('terminal').value=c.terminal;C('site').checked=c.site;C('url').value=c.url;C('key').value='';
-  $('keyh').textContent=c.key?'Ключ задан. Пусто: без изменений':'Выдаётся на cosmos1562.space/glebotron, раздел «Устройства»';
+  C('terminal').value=c.terminal;
   C('apName').value=c.apName;C('apName').placeholder=c.apDefault;$('aph').textContent='Пусто: '+c.apDefault;
-  C('apOpen').checked=c.apOpen;C('apPass').value='';C('pin').value='';C('noPin').checked=!c.pin;apOpen();
-  if(!$('nets').children.length)scan()}
+  C('apOpen').checked=c.apOpen;C('apPass').value='';C('pin').value='';C('noPin').checked=!c.pin;apOpen()}
 function apOpen(){$('appl').hidden=C('apOpen').checked}C('apOpen').onchange=apOpen;
 function open_(){$('sheet').hidden=false;if(pin||!st.pin)info(1);else showLogin();clearInterval(watch);watch=setInterval(()=>{if(!$('admin').hidden)info(0)},3000)}
 function close_(){$('sheet').hidden=true;clearInterval(watch)}
@@ -233,33 +213,13 @@ $('enter').onclick=()=>{pin=$('pin').value;info(1)};$('pin').onkeydown=e=>{if(e.
 $('logout').onclick=()=>{pin='';showLogin()};
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.setAttribute('aria-selected',x==b));
   document.querySelectorAll('#admin>.sec').forEach((x,i)=>x.hidden=i!=b.dataset.t)});
-function bars(r){const n=r>-55?4:r>-65?3:r>-75?2:1,s=document.createElement('span');s.className='bars';
-  for(let i=1;i<5;i++){const e=document.createElement('i');e.style.height=(i*3)+'px';if(i<=n)e.className='on';s.append(e)}return s}
-async function scan(){const box=$('nets');box.innerHTML='<p class="hint">Ищем сети…</p>';sel=null;$('join').hidden=true;
-  for(let i=0;i<30;i++){try{const r=await fetch('/api/wifi/scan');if(r.status==200){const best={};
-    for(const x of await r.json())if(!best[x.s]||best[x.s].r<x.r)best[x.s]=x;
-    const list=Object.values(best).sort((a,b)=>b.r-a.r);box.replaceChildren();
-    if(!list.length)box.innerHTML='<p class="hint">Сетей не найдено</p>';
-    for(const x of list){const d=document.createElement('button');d.className='net';d.type='button';d.setAttribute('aria-pressed','false');
-      const s=document.createElement('span');s.textContent=x.s;const l=document.createElement('small');l.textContent=x.e?'с паролем':'открытая';
-      d.append(s,l,bars(x.r));
-      d.onclick=()=>{sel=x;box.querySelectorAll('.net').forEach(y=>y.setAttribute('aria-pressed',y==d));
-        $('join').hidden=false;$('wpl').hidden=!x.e;$('wp').value='';say($('wm'),'');if(x.e)$('wp').focus()};
-      box.append(d)}return}}catch(e){}
-    await new Promise(r=>setTimeout(r,500))}
-  box.innerHTML='<p class="hint">Не удалось найти сети</p>'}
-$('rescan').onclick=scan;
-$('connect').onclick=async()=>{if(!sel)return;const r=await post('/api/wifi/connect',{s:sel.s,p:$('wp').value});
-  if(r.status==403){pin='';showLogin('Нужно войти');return}
-  if(!r.ok){say($('wm'),'Не удалось','e');return}
-  $('wp').value='';say($('wm'),'Подключаемся к '+sel.s+'…','k');info(0)};
 document.querySelectorAll('.sv').forEach(b=>b.onclick=async()=>{const m=b.nextElementSibling;b.disabled=true;
-  const o={terminal:C('terminal').value,url:C('url').value,key:C('key').value,apName:C('apName').value,apPass:C('apPass').value,pin:C('pin').value,
-    site:C('site').checked?1:0,apOpen:C('apOpen').checked?1:0,noPin:C('noPin').checked?1:0};
+  const o={terminal:C('terminal').value,apName:C('apName').value,apPass:C('apPass').value,pin:C('pin').value,
+    apOpen:C('apOpen').checked?1:0,noPin:C('noPin').checked?1:0};
   try{const r=await post('/api/admin/save',o),x=await r.text();
     if(r.ok){if(o.noPin==1)pin='';else if(o.pin)pin=o.pin;
       say(m,x=='ap'?'Сохранено. Точка доступа перезапускается: подключитесь к ней снова.':'Сохранено','k');
-      C('key').value='';C('apPass').value='';C('pin').value='';info(1);state()}
+      C('apPass').value='';C('pin').value='';info(1);state()}
     else if(r.status==403){pin='';showLogin('Нужно войти')}else say(m,x,'e')}catch(e){say(m,'Нет связи с терминалом','e')}
   b.disabled=false});
 </script></body></html>)html";

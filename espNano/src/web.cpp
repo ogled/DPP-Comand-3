@@ -8,7 +8,6 @@
 #include "net.h"
 #include "page.h"
 #include "radio.h"
-#include "site.h"
 
 namespace {
 WebServer server(80);
@@ -34,22 +33,11 @@ bool pinOk() {
   return false;
 }
 
-const char* siteState() {
-  switch (site::state()) {
-    case site::ONLINE: return "online";
-    case site::BAD_KEY: return "key";
-    case site::TROUBLE: return "trouble";
-    case site::NO_WIFI: return "nowifi";
-    default: return "off";
-  }
-}
-
 void handleState() {
   Config c = config::get();
   JsonDocument doc;
   doc["terminal"] = c.terminal;
-  doc["wifi"] = net::connected();
-  doc["site"] = siteState();
+  doc["site"] = "off";  // no internet here
   doc["pin"] = c.pin[0] != 0;
   uint16_t got, total;
   if (camlink::progress(got, total)) {
@@ -91,48 +79,32 @@ void handleAdminInfo() {
   Config c = config::get();
   JsonDocument doc;
   doc["terminal"] = c.terminal;
-  doc["site"] = c.siteLink;
-  doc["url"] = c.url;
-  doc["key"] = c.key[0] != 0;  // whether one is set; the key itself never leaves the terminal
   doc["apName"] = c.apName;
   Config unnamed{};
   unnamed.terminal = c.terminal;
   doc["apDefault"] = config::apName(unnamed);
   doc["apOpen"] = c.apPass[0] == 0;
   doc["pin"] = c.pin[0] != 0;
-  JsonObject w = doc["wifi"].to<JsonObject>();
-  w["ssid"] = net::ssid();
-  w["connected"] = net::connected();
-  w["ip"] = net::ip();
-  doc["siteState"] = siteState();
   sendJson(200, doc);
 }
 
-// Empty password, key and PIN fields keep what is set.
+// Empty password and PIN fields keep what is set.
 void handleAdminSave() {
   if (!pinOk()) return;
   Config c = config::get();
   Config before = c;
 
   long terminal = server.arg("terminal").toInt();
-  String url = server.arg("url"), key = server.arg("key"), apName = server.arg("apName");
-  String apPass = server.arg("apPass"), pin = server.arg("pin");
-  url.trim();
-  key.trim();
+  String apName = server.arg("apName"), apPass = server.arg("apPass"), pin = server.arg("pin");
   apName.trim();
 
   if (terminal < 1 || terminal > 999) return fail(400, "Номер терминала: от 1 до 999");
-  if (!url.startsWith("https://") || url.length() >= sizeof c.url) return fail(400, "Адрес сервера: https://…");
-  if (key.length() >= sizeof c.key) return fail(400, "Ключ слишком длинный");
   if (apName.length() >= sizeof c.apName) return fail(400, "Имя точки доступа: до 32 символов");
   if (!apPass.isEmpty() && (apPass.length() < 8 || apPass.length() >= sizeof c.apPass))
     return fail(400, "Пароль точки доступа: от 8 до 64 символов");
   if (pin.length() >= sizeof c.pin) return fail(400, "PIN: до 16 символов");
 
   c.terminal = terminal;
-  c.siteLink = server.arg("site") == "1";
-  strlcpy(c.url, url.c_str(), sizeof c.url);
-  if (!key.isEmpty()) strlcpy(c.key, key.c_str(), sizeof c.key);
   strlcpy(c.apName, apName.c_str(), sizeof c.apName);
   if (server.arg("apOpen") == "1") c.apPass[0] = 0;
   else if (!apPass.isEmpty()) strlcpy(c.apPass, apPass.c_str(), sizeof c.apPass);
@@ -145,23 +117,6 @@ void handleAdminSave() {
   server.send(200, "text/plain", apChanged ? "ap" : "ok");
   // The reply goes out first: restarting the access point drops the phone.
   if (apChanged) apRestartAt = millis() + 1000;
-}
-
-void handleScan() {
-  JsonDocument doc;
-  if (!net::scan(doc.to<JsonArray>())) {
-    server.send(202, "text/plain", "scanning");
-    return;
-  }
-  sendJson(200, doc);
-}
-
-void handleConnect() {
-  if (!pinOk()) return;
-  String ssid = server.arg("s"), pass = server.arg("p");
-  if (ssid.isEmpty() || ssid.length() > 32 || pass.length() > 64) return fail(400, "bad");
-  server.send(204);
-  net::connect(ssid, pass);
 }
 
 // Any other address, including the phone's "is there internet?" check,
@@ -189,8 +144,6 @@ void begin(void (*onSend)(const String& nick, const String& text)) {
   server.on("/api/send", HTTP_POST, handleSend);
   server.on("/api/admin/info", HTTP_POST, handleAdminInfo);
   server.on("/api/admin/save", HTTP_POST, handleAdminSave);
-  server.on("/api/wifi/scan", HTTP_GET, handleScan);
-  server.on("/api/wifi/connect", HTTP_POST, handleConnect);
   server.onNotFound(handleOther);
   server.begin();
 }

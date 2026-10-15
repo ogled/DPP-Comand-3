@@ -9,9 +9,26 @@ const IPAddress AP_IP(192, 168, 4, 1);
 void restartAp() {
   Config c = config::get();
   WiFi.softAPConfig(AP_IP, AP_IP, IPAddress(255, 255, 255, 0));
-  WiFi.softAP(config::apName(c).c_str(), c.apPass[0] ? c.apPass : nullptr);
-  Serial.printf("access point: %s\n", config::apName(c).c_str());
+  bool ok = WiFi.softAP(config::apName(c).c_str(), c.apPass[0] ? c.apPass : nullptr);
+  Serial.printf("access point %s: \"%s\", %s, ip %s\n", ok ? "up" : "FAILED", config::apName(c).c_str(),
+                c.apPass[0] ? "with password" : "open", WiFi.softAPIP().toString().c_str());
 }
+
+namespace {
+// The Wi-Fi client on serial: its IP once it has one, and why it dropped
+// (only when the reason changes: a network that is not there repeats it).
+void onWifiEvent(arduino_event_id_t event, arduino_event_info_t info) {
+  static uint8_t lastReason = 0;
+  if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
+    lastReason = 0;
+    Serial.printf("wifi: connected to \"%s\", ip %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
+  } else if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+    uint8_t reason = info.wifi_sta_disconnected.reason;
+    if (reason != lastReason) Serial.printf("wifi: not connected to \"%s\" (reason %u)\n", config::get().wifiSsid, reason);
+    lastReason = reason;
+  }
+}
+}  // namespace
 
 void begin() {
   Config c = config::get();
@@ -25,8 +42,14 @@ void begin() {
   // The SuperMini's antenna is badly matched: at full power it often fails to join a network
   WiFi.setTxPower(WIFI_POWER_8_5dBm);
 #endif
+  WiFi.onEvent(onWifiEvent);
   restartAp();
-  if (c.wifiSsid[0]) WiFi.begin(c.wifiSsid, c.wifiPass);
+  if (c.wifiSsid[0]) {
+    Serial.printf("wifi: joining \"%s\"\n", c.wifiSsid);
+    WiFi.begin(c.wifiSsid, c.wifiPass);
+  } else {
+    Serial.println("wifi: no network saved");
+  }
   // Clock for message times, once there is internet.
   configTime(0, 0, "pool.ntp.org", "time.cloudflare.com");
 }
